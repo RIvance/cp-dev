@@ -1,0 +1,74 @@
+plugins {
+    id 'application'
+    id 'scala'
+    id 'org.graalvm.buildtools.native' version '0.10.3'
+}
+
+group = 'cp'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+application {
+    mainClass = 'main'
+}
+
+dependencies {
+
+    implementation project(":core")
+    implementation project(":surface")
+
+    implementation 'org.scala-lang:scala3-library_3:3.3.4'
+    implementation 'commons-collections:commons-collections:3.2.2'
+
+    compileOnly 'org.graalvm.sdk:graal-sdk:23.1.5'
+
+    implementation 'info.picocli:picocli:4.7.6'
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+jar {
+    manifest {
+        attributes('Main-Class': 'main')
+    }
+}
+
+task buildRust(type: Exec) {
+    workingDir "${rootProject.projectDir}/repl"
+    commandLine 'cargo', 'build', '--release'
+    inputs.dir "${rootProject.projectDir}/repl/src"
+    outputs.dir "${rootProject.projectDir}/repl/target/release"
+}
+
+compileJava {
+    dependsOn buildRust
+}
+
+graalvmNative {
+    toolchainDetection = true
+    binaries {
+        main {
+            mainClass = 'main'
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(17)
+                vendor = JvmVendorSpec.matching("GraalVM")
+            }
+            sharedLibrary = false
+            useFatJar = true
+            buildArgs.addAll([
+                "-H:CCompilerOption=-I${rootProject.projectDir}/repl/target/include",
+                "-H:CCompilerOption=-L${rootProject.projectDir}/repl/target/release"
+            ])
+        }
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

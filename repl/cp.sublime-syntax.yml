@@ -1,0 +1,64 @@
+%YAML 1.2
+---
+# http://www.sublimetext.com/docs/syntax.html
+name: Cp
+scope: source.cp
+contexts:
+  main:
+    - include: comments
+    - include: keywords
+    - include: operators
+    - include: literals
+    - include: identifiers
+  comments:
+    - match: /\*
+      push:
+        - meta_scope: comment.block.cp
+        - match: \*/
+          pop: true
+    - match: //.*$
+      scope: comment.line.double-slash.cp
+  identifiers:
+    - match: '\b[a-zα-ω][a-zA-Zα-ωΑ-Ω0-9]*(''*?)\b'
+      scope: variable.parameter.cp
+    - match: '\b''([A-ZΑ-Ω][a-zA-Zα-ωΑ-Ω]*)\b'
+      scope: entity.name.contract.cp
+    - match: '\b([A-ZΑ-Ω][a-zA-Zα-ωΑ-Ω]*)\b'
+      scope: entity.name.type.cp
+    - match: '\b([𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ])\b'
+      scope: entity.name.class.cp
+    - match: '\(([+\-/*<>=&!^%#:|@]+)\)'
+      scope: entity.name.function.operator.cp
+  keywords:
+    - match: \b(if|then|else|match|case|forall|exists|eval)\b
+      scope: keyword.control.cp
+    - match: \b(let|def|type|impl|instance|record|inductive|flat|prefix|postfix|self|operator|binary|unary|left-assoc|right-assoc|tighter-than|looser-than|same-as)\b
+      scope: keyword.operator.new.cp
+  literals:
+    - match: '\b([0-9]+(\.[0-9]+)?i)\b'
+      scope: constant.numeric.imaginary.cp
+    - match: '\b(0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+|[0-9]+(\.[0-9]+)?)\b'
+      scope: constant.numeric.cp
+    - match: '''([^''\\]|\\.)'''
+      scope: constant.character.cp
+    - match: '"'
+      push:
+        - meta_scope: string.regular.cp
+        - match: '"'
+          pop: true
+        - match: \\.
+          scope: constant.character.escape.cp
+    - match: '#\{'
+      push:
+        - meta_scope: string.raw.cp
+        - match: '\}'
+          pop: true
+        - match: \\.
+          scope: constant.character.escape.cp
+    - match: \b(true|false)\b
+      scope: constant.language.boolean.cp
+  operators:
+    - match: (->|=>|::|\.|\^|=|:|∀|Π|∃|Σ)
+      scope: keyword.operator.cp
+    - match: '[+\-/*<>=&!^%#:|@]+'
+      scope: keyword.operator.symbol.cp
