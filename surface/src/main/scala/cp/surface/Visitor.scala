@@ -1,9 +1,9 @@
-package cp.concrete
+package cp.surface
 
 import org.antlr.v4.runtime.ParserRuleContext
-import cp.concrete.SpineParser.{Associativity, Operator, Token, UnaryType}
-import cp.concrete.syntax.{Definition, Evaluation, ExprTree, Spanned, Statement, SyntaxTree}
-import cp.concrete.SyntaxError.*
+import cp.surface.SpineParser.{Associativity, Operator, Token, UnaryType}
+import cp.surface.syntax.{Definition, Evaluation, ExprTree, Spanned, Statement, SyntaxTree}
+import cp.surface.SyntaxError.*
 import cp.core.Literal.*
 import cp.core.{Pattern, Literal as LiteralValue}
 import cp.core.syntax.{ApplyMode, Argument, Clause, Param, Var}

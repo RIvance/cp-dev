@@ -1,4 +1,4 @@
-package cp.concrete
+package cp.surface
 
 import org.antlr.v4.runtime.{BaseErrorListener, ParserRuleContext, RecognitionException, Recognizer}
 import cp.util.{SourcePosition, SourceSpan}

@@ -1,8 +1,8 @@
-package cp.concrete
+package cp.surface
 
 object Prelude {
 
-  import cp.concrete.SpineParser.*
+  import cp.surface.SpineParser.*
 
   private object Operators {
     val add: Operator.Binary = Operator.Binary("+", Associativity.Left)

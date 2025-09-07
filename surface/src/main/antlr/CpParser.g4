@@ -23,7 +23,7 @@ typeDef
     ;
 
 termDef
-    :   Def? termNameDecl typeParam* termParam* (Colon type)? Assign expression Semicolon
+    :   Def? termNameDecl typeParam* termParamGroup* (Colon type)? Assign expression Semicolon
     ;
 
 type
@@ -69,7 +69,7 @@ expression
 
 opexpr
     :   lexpr
-    |   (Minus | Length | Sqrt | Deref) opexpr
+    |   (Minus | Sqrt | Deref) opexpr
     |   <assoc=left> opexpr Index opexpr
     |   <assoc=left> opexpr (Asterisk | Slash | Modulo) opexpr
     |   <assoc=left> opexpr (Plus | Minus) opexpr
@@ -81,6 +81,7 @@ opexpr
     |   <assoc=left> opexpr (Merge | LeftistMerge | RightistMerge | BackslashMinus) opexpr
     |   opexpr Walrus opexpr
     |   opexpr Seq opexpr
+    |   BraceOpen (stmt Semicolon)* opexpr? BraceClose
     ;
 
 lexpr
@@ -100,8 +101,14 @@ lexpr
     |   ref
     ;
 
+stmt
+    :   opexpr
+    |   Let termNameDecl (Colon type)? Assign expression                                // let a: T = e
+    |   LetRec termNameDecl typeParam* termParamGroup* Colon type Assign expression     // letrec f (arg: A): R = e
+    ;
+
 lambda
-    :   Backslash termParam+ Arrow expression
+    :   Backslash termParamGroup+ Arrow expression
     ;
 
 bigLambda
@@ -109,11 +116,11 @@ bigLambda
     ;
 
 letIn
-    :   Let termNameDecl typeParam* termParam* Assign expression In expression
+    :   Let termNameDecl typeParam* termParamGroup* Assign expression In expression
     ;
 
 letRec
-    :   LetRec termNameDecl typeParam* termParam* Colon type Assign expression In expression
+    :   LetRec termNameDecl typeParam* termParamGroup* Colon type Assign expression In expression
     ;
 
 openIn
@@ -197,15 +204,15 @@ record
     ;
 
 recordField
-    :   Override? selfAnno? labelDecl termParam* Assign expression
+    :   (Impl | Override)? selfAnno? labelDecl termParamGroup* Assign expression
     ;
 
 methodPattern
-    :   Override? (selfAnno At)? ParenOpen labelDecl termParam* ParenClose Dot labelDecl termParam* Assign expression
+    :   Override? (selfAnno At)? ParenOpen labelDecl termParamGroup* ParenClose Dot labelDecl termParamGroup* Assign expression
     ;
 
 defaultPattern
-    :   (Underscore | selfAnno) Dot labelDecl termParam* Assign expression
+    :   (Underscore | selfAnno) Dot labelDecl termParamGroup* Assign expression
     ;
 
 recordUpdate
@@ -221,11 +228,15 @@ typeParam
     |   ParenOpen typeNameDecl Asterisk type ParenClose
     ;
 
-termParam
+termParamGroup
     :   termNameDecl
     |   Underscore
-    |   ParenOpen (termNameDecl | Underscore) Colon type ParenClose
+    |   ParenOpen (termParamAtom (Comma termParamAtom)*) ParenClose
     |   wildcard
+    ;
+
+termParamAtom
+    :   (termNameDecl | Underscore)+ Colon type
     ;
 
 wildcard
@@ -304,5 +315,5 @@ docArg
     ;
 
 recordArgField
-    :   labelDecl termParam* Assign expression
+    :   labelDecl termParamGroup* Assign expression
     ;

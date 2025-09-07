@@ -1,7 +1,7 @@
-package cp.concrete.syntax
+package cp.surface.syntax
 
 import org.antlr.v4.runtime.ParserRuleContext
-import cp.concrete.span
+import cp.surface.span
 import cp.util.SourceSpan
 
 trait SyntaxTree[+T] {

@@ -10,10 +10,17 @@ LineComment
     :   '--' ~[\n]+ -> skip
     ;
 
+LineCommentCStyle
+    :   '//' ~[\n]+ -> skip
+    ;
+
 BlockComment
     :   '{-' .*? '-}' -> skip
     ;
 
+BlockCommentCStyle
+    :   '/*' .*? '*/' -> skip
+    ;
 
 /* LITERALS */
 
@@ -36,6 +43,10 @@ Type
 
 Def
     :   'def'
+    ;
+
+Impl
+    :   'impl'
     ;
 
 Interface
@@ -293,10 +304,6 @@ NotEqual
     :   '!='
     ;
 
-Length
-    :   '#'
-    ;
-
 Index
     :   '!!'
     ;
@@ -314,16 +321,16 @@ At
     ;
 
 Merge
-    :   ','
+    :   '#'
     |   ',,'
     ;
 
 LeftistMerge
-    :   '+,'
+    :   '+#'
     ;
 
 RightistMerge
-    :   ',+'
+    :   '#+'
     ;
 
 Assign
@@ -336,6 +343,10 @@ Semicolon
 
 Colon
     :   ':'
+    ;
+
+Comma
+    :   ','
     ;
 
 Dot

@@ -1,4 +1,4 @@
-package cp.concrete.syntax
+package cp.surface.syntax
 import cp.util.SourceSpan
 
 case class Evaluation(expr: ExprTree) extends SyntaxTree[Unit] {

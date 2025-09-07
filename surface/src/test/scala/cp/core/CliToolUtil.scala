@@ -1,8 +1,8 @@
 package cp.core
 
 import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
-import cp.concrete.{ErrorListener, Visitor}
-import cp.concrete.syntax.{Definition, Evaluation}
+import cp.surface.{ErrorListener, Visitor}
+import cp.surface.syntax.{Definition, Evaluation}
 import cp.core.syntax.Module
 import cp.error.Error
 import cp.ast.{CpLexer, CpParser}
