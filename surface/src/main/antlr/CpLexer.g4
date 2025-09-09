@@ -45,6 +45,10 @@ Def
     :   'def'
     ;
 
+Fun
+    :   'fun'
+    ;
+
 Impl
     :   'impl'
     ;
@@ -59,6 +63,7 @@ Extends
 
 ForAll
     :   'forall'
+    |   '∀'
     ;
 
 Int
@@ -208,8 +213,13 @@ Backslash
     :   '\\'
     ;
 
+Lambda
+    :   'λ'
+    ;
+
 SlashBackslash
     :   '/\\'
+    |   'Λ'
     ;
 
 BackslashMinus
@@ -230,6 +240,10 @@ FatArrow
 
 LeftArrow
     :   '<-'
+    ;
+
+Subtype
+    :   '<:'
     ;
 
 Intersect

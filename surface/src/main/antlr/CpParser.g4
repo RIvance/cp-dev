@@ -23,22 +23,23 @@ typeDef
     ;
 
 termDef
-    :   Def? termNameDecl typeParam* termParamGroup* (Colon type)? Assign expression Semicolon
+    :   Def? termNameDecl typeParamList? termParamGroup* (Colon type)? Assign expression Semicolon
     ;
 
 type
     :   <assoc=left> type Intersect type
     |   <assoc=left> type Backslash type
     |   <assoc=right> type Arrow type
-    |   ForAll typeParam+ Dot type
+    |   ForAll typeParamList Dot type
     |   Fix typeNameDecl Dot type
     |   TraitType Less type (FatArrow type)? Greater
     |   RefType btype
+    |   ty=btype BracketOpen args+=btype (Comma args+=btype)* BracketClose
     |   btype btype*
     ;
 
 btype
-    :   atype (Less sort Greater)*
+    :   atype (Less sort (Comma sort)* Greater)?
     ;
 
 atype
@@ -81,11 +82,10 @@ opexpr
     |   <assoc=left> opexpr (Merge | LeftistMerge | RightistMerge | BackslashMinus) opexpr
     |   opexpr Walrus opexpr
     |   opexpr Seq opexpr
-    |   BraceOpen (stmt Semicolon)* opexpr? BraceClose
     ;
 
 lexpr
-    :   fexpr
+    :   appExpr
     |   lambda
     |   bigLambda
     |   letIn
@@ -102,25 +102,31 @@ lexpr
     ;
 
 stmt
-    :   opexpr
-    |   Let termNameDecl (Colon type)? Assign expression                                // let a: T = e
-    |   LetRec termNameDecl typeParam* termParamGroup* Colon type Assign expression     // letrec f (arg: A): R = e
+    :   expression
+    |   Let termNameDecl (Colon type)? Assign expression                                    // let a: T = e
+    |   LetRec termNameDecl typeParamList? termParamGroup* Colon type Assign expression     // letrec f (arg: A): R = e
+    |   Let ParenOpen termNameDecl (Comma termNameDecl)* ParenClose Assign expression       // let (a, b, c) = e
+    ;
+
+typeParamList
+    :   BracketOpen params+=boundedTypeParam (Comma params+=boundedTypeParam)* BracketClose     # typeParamListBracket
+    |   params+=typeParam+                                                                      # typeParamListPlain
     ;
 
 lambda
-    :   Backslash termParamGroup+ Arrow expression
+    :   (Fun | Backslash | Lambda) termParamGroup+ Arrow expression
     ;
 
 bigLambda
-    :   SlashBackslash typeParam+ Dot expression
+    :   SlashBackslash typeParamList Dot expression
     ;
 
 letIn
-    :   Let termNameDecl typeParam* termParamGroup* Assign expression In expression
+    :   Let termNameDecl typeParamList? termParamGroup* Assign expression In expression
     ;
 
 letRec
-    :   LetRec termNameDecl typeParam* termParamGroup* Colon type Assign expression In expression
+    :   LetRec termNameDecl typeParamList? termParamGroup* Colon type Assign expression In expression
     ;
 
 openIn
@@ -145,38 +151,38 @@ fixpoint
     ;
 
 toStr
-    :   ToString dotexpr
+    :   ToString dotExpr
     ;
 
 fold
-    :   Fold typeArg dotexpr
+    :   Fold typeArg dotExpr
     ;
 
 unfold
-    :   Unfold typeArg dotexpr
+    :   Unfold typeArg dotExpr
     ;
 
 ref
-    :   Ref dotexpr
+    :   Ref dotExpr
     ;
 
-fexpr
-    :   (ctorName | excludexpr) (excludexpr | typeArg)*
+appExpr
+    :   (ctorName | excludeExpr) (excludeExpr | typeArg)*
     ;
 
-excludexpr
-    :   renamexpr (DoubleBackslashes btype | Backslash label)?
+excludeExpr
+    :   renameExpr (DoubleBackslashes btype | Backslash label)?
     ;
 
-renamexpr
-    :   dotexpr (BracketOpen label LeftArrow labelDecl BracketClose)?
+renameExpr
+    :   dotExpr (BracketOpen label LeftArrow labelDecl BracketClose)?
     ;
 
-dotexpr
-    :   aexpr (Dot label)*
+dotExpr
+    :   atomicExpr (Dot label)*
     ;
 
-aexpr
+atomicExpr
     :   termName
     |   IntLit
     |   StringLit
@@ -190,6 +196,14 @@ aexpr
     |   recordUpdate
     |   Dollar ctorName
     |   ParenOpen expression ParenClose
+    |   BraceOpen (stmt Semicolon)* expression? BraceClose
+    |   atomicExpr ParenOpen (expression (Comma expression)*)? ParenClose
+    |   atomicExpr BracketOpen ty=type (Comma args=type)* BracketClose
+    |   tuple
+    ;
+
+tuple
+    :   ParenOpen (expression Comma)+ expression? ParenClose
     ;
 
 array
@@ -226,6 +240,10 @@ typeArg
 typeParam
     :   typeNameDecl
     |   ParenOpen typeNameDecl Asterisk type ParenClose
+    ;
+
+boundedTypeParam
+    :   (lowerBound=type Subtype)? typeNameDecl (Subtype upperBound=type)?
     ;
 
 termParamGroup
