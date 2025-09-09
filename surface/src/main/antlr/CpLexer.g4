@@ -28,6 +28,12 @@ IntLit
     :   [0-9]+ ('.' [0-9]+)? (('e' | 'E') ('+' | '-')? [0-9]+)?
     |   ('0x' | '0X') [0-9a-fA-F]+
     |   ('0o' | '0O') [0-7]+
+    |   ('0b' | '0B') [01]+
+    ;
+
+BoolLit
+    :   True
+    |   False
     ;
 
 StringLit
@@ -66,30 +72,6 @@ ForAll
     |   '∀'
     ;
 
-Int
-    :   'Int'
-    ;
-
-Double
-    :   'Double'
-    ;
-
-Bool
-    :   'Bool'
-    ;
-
-String
-    :   'String'
-    ;
-
-Top
-    :   'Top'
-    ;
-
-Bot
-    :   'Bot'
-    ;
-
 TraitType
     :   'Trait'
     ;
@@ -104,6 +86,14 @@ RefType
 
 Ref
     :   'ref'
+    ;
+
+Match
+    :   'match'
+    ;
+
+Case
+    :   'case'
     ;
 
 Implements
@@ -170,16 +160,12 @@ Override
     :   'override'
     ;
 
-True_
+True
     :   'true'
     ;
 
-False_
+False
     :   'false'
-    ;
-
-Undefined_
-    :   'undefined'
     ;
 
 
@@ -248,6 +234,10 @@ Subtype
 
 Intersect
     :   '&'
+    ;
+
+Union
+    :   '|'
     ;
 
 Plus
