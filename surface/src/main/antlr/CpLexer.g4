@@ -144,10 +144,6 @@ With
     :   'with'
     ;
 
-ToString
-    :   'toString'
-    ;
-
 Fold
     :   'fold'
     ;

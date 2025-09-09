@@ -63,7 +63,7 @@ typedExpr
     ;
 
 expression
-    :   complexExpr                                                 # expressionComplex
+    :   compExpr                                                 # expressionComplex
     |   (Minus | Sqrt | Deref) expression                           # expressionUnary
     |   <assoc=left> lhs=expression Index rhs=expression            # expressionIndex
     |   <assoc=left> lhs=expression op=(Asterisk | Slash | Modulo) rhs=expression   # expressionMulDiv
@@ -78,22 +78,21 @@ expression
     |   lhs=expression Seq rhs=expression           # expressionSeq
     ;
 
-complexExpr
-    :   appExpr
-    |   lambda
-    |   typeLambda
-    |   letIn
-    |   letRec
-    |   openIn
-    |   ifElse
-    |   matchExpr
-    |   trait
-    |   newTrait
-    |   fixpoint
-    |   toStr
-    |   fold
-    |   unfold
-    |   ref
+compExpr
+    :   (ctorName | excludeExpr) (excludeExpr | typeArg)*                           # compExprApp
+    |   (Fun | Backslash | Lambda) termParams+=termParamGroup+ Arrow expr=typedExpr # compExprLambda
+    |   SlashBackslash typeParams=typeParamList Dot expr=typedExpr # compExprTypeLambda
+    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign typedExpr In typedExpr  # compExprLetIn
+    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon type Assign typedExpr In typedExpr # compExprLetRec
+    |   Open expr=typedExpr In body=typedExpr # compExprOpenIn
+    |   If condition=typedExpr Then thenBranch=typedExpr Else elseBranch=typedExpr # compExprIf
+    |   Match typedExpr BraceOpen (caseClause Semicolon)* caseClause Semicolon BraceClose # compExprMatch
+    |   Trait selfAnno? (Implements implType=type)? (Inherits inheritance=expression)? FatArrow expr=expression # compExprTrait
+    |   New expr=expression # compExprNewTrait
+    |   Fix name=termNameDecl Colon ty=type Dot expr=expression # compExprFixpoint
+    |   Fold typeArg dotExpr # compExprFold
+    |   Unfold typeArg dotExpr # compExprUnfold
+    |   Ref dotExpr # compExprRef
     ;
 
 stmt
@@ -113,61 +112,8 @@ typeParamList
     |   params+=typeParam+                                                                      # typeParamListPlain
     ;
 
-lambda
-    :   (Fun | Backslash | Lambda) termParams+=termParamGroup+ Arrow expr=typedExpr
-    ;
-
-typeLambda
-    :   SlashBackslash typeParams=typeParamList Dot expr=typedExpr
-    ;
-
-letIn
-    :   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign typedExpr In typedExpr
-    ;
-
-letRec
-    :   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon type Assign typedExpr In typedExpr
-    ;
-
-openIn
-    :   Open typedExpr In typedExpr
-    ;
-
-ifElse
-    :   If typedExpr Then typedExpr Else typedExpr
-    ;
-
-trait
-    :   Trait selfAnno? (Implements type)? (Inherits expression)? FatArrow expression
-    |   Trait selfAnno? (Inherits expression)? (Implements type)? FatArrow expression
-    ;
-
-newTrait
-    :   New expression
-    ;
-
-fixpoint
-    :   Fix termNameDecl Colon type Dot expression
-    ;
-
-toStr
-    :   ToString dotExpr
-    ;
-
-fold
-    :   Fold typeArg dotExpr
-    ;
-
-unfold
-    :   Unfold typeArg dotExpr
-    ;
-
-ref
-    :   Ref dotExpr
-    ;
-
 appExpr
-    :   (ctorName | excludeExpr) (excludeExpr | typeArg)*
+    :   (ctorName | excludeExpr) (excludeExpr | At typeWithSort)*
     ;
 
 excludeExpr
@@ -259,6 +205,7 @@ recordUpdate
 
 typeArg
     :   At typeWithSort
+    |   BracketOpen typeWithSort BracketClose
     ;
 
 typeParam
