@@ -1,4 +1,4 @@
-package cp.surface
+package cp.parser
 
 import scala.annotation.targetName
 import scala.collection.mutable

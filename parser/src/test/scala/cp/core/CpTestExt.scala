@@ -1,7 +1,7 @@
 package cp.core
 
 import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
-import cp.surface.Visitor
+import cp.parser.Visitor
 import cp.core.catchError
 import cp.core.context.Environment
 import cp.core.domain.{NeutralValue, Type, Value}
