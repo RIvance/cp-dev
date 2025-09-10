@@ -33,7 +33,7 @@ type
     |   <assoc=right> domain=type Arrow codomain=type       # typeArrow
     |   ForAll typeParamList Dot codomain=type              # typeForAll
     |   Fix name=typeNameDecl Dot type                      # typeFix
-    |   TraitType Less type (FatArrow type)? Greater        # typeTrait
+    |   TraitType Less inType=type (FatArrow outType=type)? Greater        # typeTrait
     |   RefType typeWithSort                                # typeRef
     |   ty=typeWithSort BracketOpen args+=typeWithSort (Comma args+=typeWithSort)* BracketClose     # typeApp
     |   typeWithSort typeWithSort*                          # typeSpine
@@ -51,7 +51,7 @@ typeLiteral
     ;
 
 recordType
-    :   BraceOpen (recordTypeField Semicolon)* recordTypeField? BraceClose
+    :   BraceOpen (fields+=recordTypeField Semicolon)* fields+=recordTypeField? BraceClose
     ;
 
 recordTypeField
@@ -64,8 +64,8 @@ typedExpr
 
 expression
     :   compExpr                                                 # expressionComplex
-    |   (Minus | Sqrt | Deref) expression                           # expressionUnary
-    |   <assoc=left> lhs=expression Index rhs=expression            # expressionIndex
+    |   op=(Minus | Sqrt | Deref) expression                     # expressionUnary
+    |   <assoc=left> arr=expression Index index=expression            # expressionIndex
     |   <assoc=left> lhs=expression op=(Asterisk | Slash | Modulo) rhs=expression   # expressionMulDiv
     |   <assoc=left> lhs=expression op=(Plus | Minus) rhs=expression                # expressionAddSub
     |   <assoc=left> lhs=expression Append rhs=expression                           # expressionAppend
@@ -75,17 +75,17 @@ expression
     |   <assoc=left> lhs=expression Forward rhs=expression          # expressionForward
     |   <assoc=left> lhs=expression op=(Merge | LeftistMerge | RightistMerge | BackslashMinus) rhs=expression # expressionMerge
     |   lhs=expression Walrus rhs=expression        # expressionRefAssign
-    |   lhs=expression Seq rhs=expression           # expressionSeq
+    |   lhs=expression RightShift rhs=expression           # expressionSeq
     |   expression With BraceOpen (fields+=fieldAssign Semicolon)* fields+=fieldAssign? BraceClose # expressionRecordUpdate
     ;
 
 compExpr
-    :   ctorName args+=spineArg*                           # compCtorApp
-    |   excludeExpr args+=spineArg*                           # compExprApp
+    :   ctorName args+=spineArg*                            # compCtorApp
+    |   excludeExpr args+=spineArg*                         # compExprApp
     |   (Fun | Backslash | Lambda) termParams+=termParamGroup+ Arrow expr=typedExpr # compExprLambda
     |   SlashBackslash typeParams=typeParamList Dot expr=typedExpr # compExprTypeLambda
-    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign typedExpr In typedExpr  # compExprLetIn
-    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon type Assign typedExpr In typedExpr # compExprLetRec
+    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign value=typedExpr In body=typedExpr  # compExprLetIn
+    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon ty=type Assign value=typedExpr In body=typedExpr # compExprLetRec
     |   Open expr=typedExpr In body=typedExpr # compExprOpenIn
     |   If condition=typedExpr Then thenBranch=typedExpr Else elseBranch=typedExpr # compExprIf
     |   Match typedExpr BraceOpen (caseClause Semicolon)* caseClause Semicolon BraceClose # compExprMatch
@@ -112,6 +112,8 @@ stmt
     |   Let ParenOpen variables+=termNameDecl (Comma variables+=termNameDecl)* ParenClose Assign expr=typedExpr     # stmtLetTuple
         // let { l1 = e1; l2 = e2; ... } = e
     |   Let BraceOpen recordFields+=labelDecl (Comma recordFields+=labelDecl)* BraceClose Assign expr=typedExpr     # stmtLetRecord
+        // r := e
+    |   ref=excludeExpr Walrus value=typedExpr    # stmtRefAssign
     ;
 
 typeParamList
@@ -120,7 +122,7 @@ typeParamList
     ;
 
 excludeExpr
-    :   expr=renameExpr (DoubleBackslashes ty=typeWithSort | Backslash tyLable=label)?
+    :   expr=renameExpr (DoubleBackslashes excludeType=typeWithSort | Backslash removalField=label)?
     ;
 
 renameExpr
@@ -139,6 +141,7 @@ pattern
     :   Underscore                          # patternWildcard
     |   variable=termNameDecl               # patternVar
     |   IntLit                              # patternInt
+    |   FloatLit                            # patternFloat
     |   StringLit                           # patternString
     |   BoolLit                             # patternBool
     |   Unit                                # patternUnit
@@ -154,12 +157,13 @@ recordPatternField
     ;
 
 dotExpr
-    :   atomicExpr (Dot path+=label)*
+    :   expr=atomicExpr (Dot path+=label)*
     ;
 
 atomicExpr
     :   termName                        # atomicExprVar
     |   IntLit                          # atomicExprInt
+    |   FloatLit                        # atomicExprFloat
     |   StringLit                       # atomicExprString
     |   document                        # atomicExprDoc
     |   Unit                            # atomicExprUnit
@@ -171,8 +175,8 @@ atomicExpr
     |   Dollar ctorName                 # atomicExprCtor
     |   ParenOpen typedExpr ParenClose  # atomicExprParen
     |   BraceOpen (stmt Semicolon)* typedExpr? BraceClose                   # atomicExprBlock
-    |   atomicExpr ParenOpen (typedExpr (Comma typedExpr)*)? ParenClose     # atomicExprApp
-    |   atomicExpr BracketOpen ty=type (Comma args=type)* BracketClose      # atomicExprTypeApp
+    |   expr=atomicExpr ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose     # atomicExprApp
+    |   expr=atomicExpr BracketOpen args+=type (Comma args+=type)* BracketClose      # atomicExprTypeApp
     ;
 
 tuple
@@ -188,21 +192,9 @@ record
     ;
 
 recordEntity
-    :   recordField
-    |   methodPattern
-    |   defaultPattern
-    ;
-
-recordField
-    :   (Impl | Override)? selfAnno? name=labelDecl params+=termParamGroup* Assign value=typedExpr
-    ;
-
-methodPattern
-    :   Override? (selfAnno At)? ParenOpen name=labelDecl objectParams+=termParamGroup* ParenClose Dot method=labelDecl methodParams+=termParamGroup* Assign value=typedExpr
-    ;
-
-defaultPattern
-    :   (Underscore | selfAnno) Dot name=labelDecl params+=termParamGroup* Assign value=typedExpr
+    :   (Impl | Override)? selfAnno? name=labelDecl params+=termParamGroup* Assign value=typedExpr  # recordField
+    |   Override? (selfAnno At)? ParenOpen name=labelDecl objectParams+=termParamGroup* ParenClose Dot method=labelDecl methodParams+=termParamGroup* Assign value=typedExpr # recordMethod
+    |   (Underscore | selfAnno) Dot name=labelDecl params+=termParamGroup* Assign value=typedExpr # recordDefaultPattern
     ;
 
 recordUpdate
@@ -228,13 +220,13 @@ boundedTypeParam
     ;
 
 termParamGroup
-    :   termNameDecl                # termParamSingleIdent
+    :   name=termNameDecl           # termParamSingleIdent
     |   Underscore                  # termParamSingleWildcard
-    |   ParenOpen (termParamAtom (Comma termParamAtom)*) ParenClose # termParamMultiple
-    |   wildcard        # termParamWildcard
+    |   ParenOpen (groups+=termParamAtomGroup (Comma groups+=termParamAtomGroup)*) ParenClose # termParamMultiple
+    |   wildcardRecord        # termParamRecordWildcard
     ;
 
-termParamAtom
+termParamAtomGroup
     :   params+=termParamIdent+ Colon type
     ;
 
@@ -243,7 +235,7 @@ termParamIdent
     |   Underscore
     ;
 
-wildcard
+wildcardRecord
     :   BraceOpen (fields+=fieldAssign Semicolon)* DotDot BraceClose
     ;
 
