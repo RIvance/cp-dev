@@ -7,5 +7,5 @@ pluginManagement {
 
 rootProject.name = 'cp'
 include 'core'
-include 'surface'
+include 'parser'
 include 'cli'
