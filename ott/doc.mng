@@ -1,0 +1,254 @@
+\documentclass{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{multicol}
+\usepackage{ottalt}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage{bbold}
+\DeclareSymbolFont{bbsymbol}{U}{bbold}{m}{n}
+\DeclareMathSymbol{\bbcomma}{\mathbin}{bbsymbol}{"2C}
+
+\inputott{ott}
+
+\newcommand\calculus{$\mathsf{F}_i^+$\xspace}
+
+\title{Compiling from \calculus to JavaScript}
+\author{Yaozhu Sun}
+
+\begin{document}
+
+\maketitle
+
+\section*{Syntax of \calculus}
+\begin{align*}
+  &\text{Types}          &A,B,C ::=&~ [[Top]] ~|~ [[Bot]] ~|~ [[Base]] ~|~ [[X]] ~|~ [[A -> B]] ~|~ [[Forall X*A. B]] ~|~ [[{l : A}]] ~|~ [[A & B]] \\
+  % &\text{Ordinary types} &[[Aord]],[[Bord]],[[Cord]] ::=&~ [[Top]] ~|~ [[Bot]] ~|~ [[Base]] ~|~ [[X]] ~|~ [[A -> Bord]] ~|~ [[Forall X*A. Bord]] ~|~ [[{l : Aord}]] \\
+  &\text{Expressions}    &    e ::=&~ [[{}]] ~|~ [[b]] ~|~ [[x]] ~|~ [[fix x:A. e]] ~|~ [[\x:A. e:B]] ~|~ [[e1 e2]] ~|~ [[/\X*A. e:B]] ~|~ [[e A]] \\
+  &                      &        |&~ [[{l = e}]] ~|~ [[e.l]] ~|~ [[e1 ,, e2]] ~|~ [[e : A]] \\
+  &\text{Type indices}   &[[T]] ::=&~ [[Base]] ~|~ [[->T]] ~|~ [[\-/T]] ~|~ [[{l : T}]] ~|~ [[T1 & T2]] \\
+  &\text{JavaScript code}&[[J]] ::=&~ [[nothing]] ~|~ [[J1;J2]] ~|~ [[code]] \\
+  &\text{Destinations}   &  dst ::=&~ [[nil]] ~|~ [[y?]] ~|~ [[z]]
+\end{align*}
+
+\bigskip
+\ottdefncompile
+
+\begin{multicols}{3}
+\begin{verbatim}
+/* J-Nil */
+var z = {};
+J;
+
+/* J-Opt */
+var z = y || {};
+J;
+
+/* J-Int */
+z[T] = n;
+
+/* J-IntOpt */
+var z = n;
+if (y) y[T] = n;
+
+/* J-IntNil */
+var z = n;
+
+/* J-Var */
+copy(z, x);
+
+/* J-VarOpt */
+if (y) copy(y, x);
+
+/* J-Fix */
+var x = z;
+J;
+
+/* J-Abs */
+z[T] = (x, y) => {
+  J;  return y0;
+};
+
+/* J-TAbs */
+z[T] = (X, y) => {
+  J;  return y0;
+};
+
+/* J-Rcd */
+z.__defineGetter__(T, () => {
+  J;
+  delete this[T];
+  return this[T] = y;
+});
+
+/* J-Def */
+export var x = {};
+J1;  J2;
+\end{verbatim}
+\end{multicols}
+
+\vfill
+\paragraph{Copying properties} n.b. there seems to be some alternatives:
+\begin{itemize}
+  \item \texttt{Object.assign(dst, src)} does not properly copy getters;
+  \item \texttt{Object.defineProperties(dst, Object.getOwnPropertyDescriptors(src))} is proper but slow;
+  \item \texttt{Object.setPrototypeOf(dst, src)} does the prototype trick but is even slower.
+\end{itemize}
+\begin{verbatim}
+function copy(dst, src) {
+  for (const prop in src) {
+    var getter = src.__lookupGetter__(prop);
+    if (getter) dst.__defineGetter__(prop, getter);
+    else dst[prop] = src[prop];
+  }
+}
+\end{verbatim}
+
+\newpage
+\ottdefndapp
+
+\begin{multicols}{3}
+\begin{verbatim}
+/* JA-Nil */
+var z = {};
+J;
+
+/* JA-Opt */
+var z = y || {};
+J;
+
+/* JA-Arrow */
+var y0 = {};
+J1;  J2;
+
+/* JA-ArrowEquiv */
+x[T](y, z);
+
+/* JA-ArrowOpt */
+var z = x[T](y, z0);
+
+/* JA-ArrowNil */
+var z = x[T](y);
+
+/* JA-All */
+x[T](Ts, z);
+
+/* JA-AllOpt */
+var z = x[T](Ts, y);
+
+/* JA-All */
+var z = x[T](Ts);
+\end{verbatim}
+\end{multicols}
+
+\vfill
+\ottdefndproj
+
+\begin{verbatim}
+/* JP-RcdEq */
+var z = x[T];
+\end{verbatim}
+
+\newpage
+\ottdefncsubZero
+
+\begin{multicols}{2}
+\begin{verbatim}
+/* JS0-Int */
+J;  y = y[T];
+
+/* JS0-Var */
+J;  if (primitive(X)) y = y[T];
+\end{verbatim}
+\end{multicols}
+
+\ottdefncsub
+
+\begin{multicols}{3}
+\begin{verbatim}
+/* JS-Equiv */
+copy(y, x);
+
+/* JS-Bot */
+y[T] = null;
+
+/* JS-Int */
+y[T] = x;
+
+/* JS-IntAnd */
+y[T] = x[T];
+
+/* JS-Var */
+copy(y, x);
+
+/* JS-Arrow */
+y[T2] = (x1, y2) => {
+  var y1 = {};  J1;
+  var x2 = x[T1](y1);
+  y2 = y2 || {};
+  J2;  return y2;
+};
+
+/* JS-All */
+y[T2] = (X, y0) => {
+  var x0 = x[T1](X);
+  y0 = y0 || {};
+  J;  return y0;
+};
+
+/* JS-Rcd */
+y.__defineGetter__(T2, () => {
+  var x0 = x[T1];
+  var y0 = {};  J;
+  delete this[T];
+  return this[T] = y0;
+});
+
+/* JS-Split */
+var y1 = {}; // if y1 != z
+var y2 = {}; // if y2 != z
+J1;  J2;  J3;
+\end{verbatim}
+\end{multicols}
+
+\newpage
+\ottdefncmerge
+
+\begin{multicols}{3}
+\begin{verbatim}
+/* JM-Arrow */
+z[T] = (p, y) => {
+  y = y || {};
+  var y1 = {}; // if y1 != y
+  var y2 = {}; // if y2 != y
+  x1[T1](p, y1);
+  x2[T2](p, y2);
+  J;  return y;
+};
+
+/* JM-All */
+z[T] = (X, y) => {
+  y = y || {};
+  var y1 = {}; // if y1 != y
+  var y2 = {}; // if y2 != y
+  x1[T1](X, y1);
+  x2[T2](X, y2);
+  J;  return y;
+};
+
+/* JM-Rcd */
+z.__defineGetter__(T, () => {
+  var y = {};
+  var y1 = {}; // if y1 != y
+  var y2 = {}; // if y2 != y
+  copy(y1, x1[T1]);
+  copy(y2, x2[T2]);
+  J;
+  delete this[T];
+  return this[T] = y;
+});
+\end{verbatim}
+\end{multicols}
+
+\end{document}

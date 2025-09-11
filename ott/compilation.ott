@@ -1,0 +1,406 @@
+grammar
+
+T, Ts :: 'ti_' ::= {{ com Type indices }}
+  | Base      ::  :: base  {{ com base type }} {{ tex \mathbb{Z} }}
+  | -> T      ::  :: arrow {{ com function type }} {{ tex \overrightarrow{[[T]]} }}
+  | \-/ T     ::  :: all   {{ com universal type }} {{ tex [[T]]^\forall }}
+  | { l : T } ::  :: rcd   {{ com record type }}
+  | T1 & T2   ::  :: and   {{ com intersection type }}
+  | | A |     :: M:: translation {{ tex |[[A]]| }}
+  | ( A )     :: S:: paren
+
+J, code {{ tex \mathtt{code} }} :: 'js_' ::= {{ com JavaScript statements }}
+  | nothing ::  :: empty {{ tex \varnothing }}
+  | J1 ; J2 ::  :: concat
+
+p :: 'param_' ::= {{ com parameters }}
+  | x : A ::  :: term
+  | A     ::  :: type
+
+dst :: 'dst_' ::= {{ com destinations }}
+  | nil ::  :: nil
+  | x   ::  :: var
+  | x ? ::  :: opt
+
+pm {{ tex ^\pm }} :: 'pm_' ::= {{ com plus/minus }}
+  | + ::  :: plus  {{ tex ^+ }}
+  | - ::  :: minus {{ tex ^- }}
+
+
+
+defns
+Compilation :: '' ::=
+
+defn
+G ; dst |- e mode A ~~> J | z :: :: compile :: J_
+{{ com Type-directed compilation }}
+by
+
+G; z |- e mode A ~~> J | z
+------------------------------- :: Nil
+G; nil |- e mode A ~~> code | z
+
+
+G; z |- e mode A ~~> J | z
+------------------------------ :: Opt
+G; y? |- e mode A ~~> code | z
+
+
+--------------------------------- :: Top
+G; z |- {} => Top ~~> nothing | z
+
+
+T = |Base|
+------------------------------ :: Int
+G; z |- b => Base ~~> code | z
+
+
+T = |Base|
+------------------------------- :: IntOpt
+G; y? |- b => Base ~~> code | z
+
+
+-------------------------------- :: IntNil
+G; nil |- b => Base ~~> code | z
+
+
+x : A in G
+--------------------------- :: Var
+G; z |- x => A ~~> code | z
+
+
+x : A in G
+---------------------------- :: VarOpt
+G; y? |- x => A ~~> code | x
+
+
+x : A in G
+-------------------------------- :: VarNil
+G; nil |- x => A ~~> nothing | x
+
+
+G, x:A; z |- e <= A ~~> J | z
+------------------------------------ :: Fix
+G; z |- fix x:A. e => A ~~> code | z
+
+
+toplike B
+----------------------------------------- :: TopAbs
+G; z |- \x:A. e:B => A->B ~~> nothing | z
+
+
+T = ->|B|
+G, x:A; y? |- e <= B ~~> J | y0
+-------------------------------------- :: Abs
+G; z |- \x:A. e:B => A->B ~~> code | z
+
+
+G; nil |- e1 => A ~~> J1 | x
+G; nil |- e2 => B ~~> J2 | y
+G; dst |- x : A $ y : B ~~> J3 | z : C
+-------------------------------------- :: App
+G; dst |- e1 e2 => C ~~> J1;J2;J3 | z
+
+
+toplike B
+---------------------------------------------------------- :: TopTAbs
+G; z |- /\ X * A. e : B => Forall X * A. B ~~> nothing | z
+
+
+T = \-/|B|
+G , X * A; y? |- e <= B ~~> J2 | y0
+------------------------------------------------------- :: TAbs
+G; z |- /\ X * A. e : B => Forall X * A. B ~~> code | z
+
+
+G; nil |- e => B ~~> J1 | y
+G; dst |- y : B $ A ~~> J2 | z : C
+---------------------------------- :: TApp
+G; dst |- e A => C ~~> J1;J2 | z
+
+
+G |- e => A
+toplike A
+------------------------------------------ :: TopRcd
+G; z |- {l = e} => {l : A} ~~> nothing | z
+
+
+T = {l : |A|}
+G; nil |- e => A ~~> J | y
+--------------------------------------- :: Rcd
+G; z |- {l = e} => {l : A} ~~> code | z
+
+
+G; nil |- e => A ~~> J1 | y
+y : A $ {l} ~~> J2 | z : B
+------------------------------ :: Proj
+G; z |- e.l => B ~~> J1;J2 | z
+
+
+G; z |- e1 => A ~~> J1 | z
+G; z |- e2 => B ~~> J2 | z
+G |- A * B
+--------------------------------------- :: Merge
+G; z |- e1 ,, e2 => A & B ~~> J1;J2 | z
+
+
+G; dst |- e <= A ~~> J | z
+---------------------------- :: Anno
+G; dst |- e:A => A ~~> J | z
+
+
+G; x |- e1 => A ~~> J1 | x
+G, x:A; z |- e2 => B ~~> J2 | z
+------------------------------------ :: Def
+G; z |- x = e1; e2 => B ~~> code | z
+
+
+G; nil |- e => A ~~> J1 | x
+x : A <: y : B ~~> J2
+---------------------------- :: Sub
+G; y |- e <= B ~~> J1;J2 | y
+
+
+A .=. B
+G; dst |- e => A ~~> J | z
+-------------------------- :: SubEquiv
+G; dst |- e <= B ~~> J | z
+
+
+
+defn
+G ; dst |- x : A $ p ~~> J | z : B :: :: dapp :: JA_
+{{ com Distributive application }}
+by
+
+
+G; z |- x : A $ p ~~> J | z : B
+------------------------------------ :: Nil
+G; nil |- x : A $ p ~~> code | z : B
+
+
+G; z |- x : A $ p ~~> J | z : B
+----------------------------------- :: Opt
+G; y? |- x : A $ p ~~> code | z : B
+
+
+toplike A
+--------------------------------------- :: Top
+G; z |- x : A $ p ~~> nothing | z : Top
+
+
+T = ->|B|
+y : C <: y0 : A ~~> J1
+G; dst |- x : A -> B $ y0 : A ~~> J2 | z : B
+--------------------------------------------- :: Arrow
+G; dst |- x : A -> B $ y : C ~~> code | z : B
+
+
+A .=. C
+T = ->|B|
+------------------------------------------- :: ArrowEquiv
+G; z |- x : A -> B $ y : C ~~> code | z : B
+
+
+A .=. C
+T = ->|B|
+-------------------------------------------- :: ArrowOpt
+G; z0? |- x : A -> B $ y : C ~~> code | z : B
+
+
+A .=. C
+T = ->|B|
+--------------------------------------------- :: ArrowNil
+G; nil |- x : A -> B $ y : C ~~> code | z : B
+
+
+G |- A * C
+T = \-/|B|
+Ts = itoa |C|
+----------------------------------------------------- :: All
+G; z |- x : Forall X*A. B $ C ~~> code | z : B [X~>C]
+
+
+G |- A * C
+T = \-/|B|
+Ts = itoa |C|
+------------------------------------------------------ :: AllOpt
+G; y? |- x : Forall X*A. B $ C ~~> code | z : B [X~>C]
+
+
+G |- A * C
+T = \-/|B|
+Ts = itoa |C|
+------------------------------------------------------- :: AllNil
+G; nil |- x : Forall X*A. B $ C ~~> code | z : B [X~>C]
+
+
+G; z |- x : A $ p ~~> J1 | z : A'
+G; z |- x : B $ p ~~> J2 | z : B'
+----------------------------------------- :: And
+G; z |- x : A&B $ p ~~> J1;J2 | z : A'&B'
+
+
+
+defn
+x : A $ { l } ~~> J | z : B :: :: dproj :: JP_
+{{ com Distributive projection }}
+by
+
+
+toplike A
+--------------------------------- :: Top
+x : A $ {l} ~~> nothing | z : Top
+
+
+T = {l : |A|}
+---------------------------------- :: RcdEq
+x : {l : A} $ {l} ~~> code | z : A
+
+
+l1 <> l2
+T = {l : |A|}
+----------------------------------------- :: RcdNeq
+x : {l1 : A} $ {l2} ~~> nothing | z : Top
+
+
+x : A $ {l} ~~> J1 | z : A'
+x : B $ {l} ~~> J2 | z : B'
+----------------------------------- :: And
+x : A&B $ {l} ~~> J1;J2 | z : A'&B'
+
+
+
+defn
+x : A <: y : B ~~> J :: :: csub0 :: JS0_
+{{ com Coercive subtyping }} % x:A <:+ ... means x is exactly of type A (not derive from S-And{L,R})
+by
+
+
+x : A <:+ y : B ~~> J
+---------------------- :: Sub
+x : A <: y : B ~~> J
+
+
+T = |Base|
+x : A <:+ y : Base ~~> J
+-------------------------- :: Int
+x : A <: y : Base ~~> code
+
+
+T = |X|
+x : A <:+ y : X ~~> J
+----------------------- :: Var
+x : A <: y : X ~~> code
+
+
+
+defn
+x : A <: pm y : B ~~> J :: :: csub :: JS_
+{{ com Coercive subtyping }} % x:A <:+ ... means x is exactly of type A (not derive from S-And{L,R})
+by
+
+
+A .=. B
+------------------------ :: Equiv
+x : A <:+ y : B ~~> code
+
+
+toplike B
+---------------------------- :: Top
+x : A <:pm y : B ~~> nothing
+
+
+T = |A|
+--------------------------- :: Bot
+x : Bot <:pm y : A ~~> code
+
+
+------------------------------ :: Int
+x : Base <:+ y : Base ~~> code
+
+
+T = |Base|
+------------------------------ :: IntAnd
+x : Base <:- y : Base ~~> code
+
+
+------------------------- :: Var
+x : X <:pm y : X ~~> code
+
+
+T1 = ->|A2|
+T2 = ->|B2|
+Ts = itoa |A1|
+x1 : B1 <: y1 : A1 ~~> J1
+x2 : A2 <: y2 : B2 ~~> J2
+--------------------------------------- :: Arrow
+x : A1 -> A2 <:pm y : B1 -> B2 ~~> code
+
+
+T1 = \-/|A2|
+T2 = \-/|B2|
+B1 <: A1
+x0 : A2 <: y0 : B2 ~~> J
+----------------------------------------------------- :: All
+x : Forall X*A1. A2 <:pm y : Forall X*B1. B2 ~~> code
+
+
+T1 = {l : |A|}
+T2 = {l : |B|}
+x0 : A <: y0 : B ~~> J
+--------------------------------- :: Rcd
+x : {l:A} <:pm y : {l:B} ~~> code
+
+
+split B B1 B2
+y1 : B1 |> z : B <| y2 : B2 ~~> J3
+x : A <:pm y1 : B1 ~~> J1
+x : A <:pm y2 : B2 ~~> J2
+---------------------------------- :: Split
+x : A <:pm z : B ~~> code
+
+
+x : A <:- y : C ~~> J
+-------------------------- :: AndL
+x : A & B <:pm y : C ~~> J
+
+
+x : B <:- y : C ~~> J
+-------------------------- :: AndR
+x : A & B <:pm y : C ~~> J
+
+
+
+defn
+x : A |> z : C <| y : B ~~> J :: :: cmerge :: JM_
+{{ com Coercive merging }}
+by
+
+
+------------------------------------- :: And
+z : A |> z : A&B <| z : B ~~> nothing
+
+
+T = ->|B|
+T1 = ->|B1|
+T2 = ->|B2|
+y1 : B1 |> y : B <| y2 : B2 ~~> J
+--------------------------------------------- :: Arrow
+x1 : A->B1 |> z : A->B <| x2 : A->B2 ~~> code
+
+
+T = \-/|B|
+T1 = \-/|B1|
+T2 = \-/|B2|
+y1 : B1 |> y : B <| y2 : B2 ~~> J
+------------------------------------------------------------------------ :: All
+x1 : Forall X*A. B1 |> z : Forall X*A. B <| x2 : Forall X*A. B2 ~~> code
+
+
+T = {l : |A|}
+T1 = {l : |A1|}
+T2 = {l : |A2|}
+y1 : A1 |> y : A <| y2 : A2 ~~> J
+------------------------------------------------ :: Rcd
+x1 : {l:A1} |> z : {l:A} <| x2 : {l:A2} ~~> code
