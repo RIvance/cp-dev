@@ -1,10 +1,9 @@
 package cp.parser
 
-import cp.ast.CpParserBaseVisitor
 import cp.ast.CpParser.*
+import cp.ast.CpParserBaseVisitor
 import cp.core.{Literal, LiteralType}
-import cp.syntax.{ExprTerm, ExprType, NeutralEffect, PureEffect, SelfAnnotation}
-import cp.util.SourceSpan
+import cp.syntax.*
 import org.antlr.v4.runtime.ParserRuleContext
 
 import scala.jdk.CollectionConverters.*
@@ -50,7 +49,6 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     ctx.compExpr.visit.withSpan(ctx)
   }
 
-  // Implement the visit methods for the other expression types according to the grammar
   override def visitExpressionUnary(ctx: ExpressionUnaryContext): ExprTerm = {
     ExprTerm.UnaryOp(ctx.op.getText, ctx.expression.visit).withSpan(ctx)
   }
@@ -167,13 +165,10 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     val params = ctx.params.asScala.flatMap(_.visit).toList
     val value = ctx.value.visit
     val body = ctx.body.visit
-
     // Handle function with parameters
     val func = if (params.isEmpty) value else value.foldLambda(params)
-
     // Apply type parameters if any
     val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
-
     ExprTerm.LetIn(name, typedFunc, body).withSpan(ctx)
   }
 
@@ -184,13 +179,11 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     val returnType = ctx.ty.visit
     val value = ctx.value.visit
     val body = ctx.body.visit
-
     // Create fixpoint for recursive function
     val funcBody = value.foldLambda(params)
     val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
     // Apply type parameters if any
     val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
-
     ExprTerm.LetIn(name, typedFixpoint, body).withSpan(ctx)
   }
 
@@ -203,11 +196,9 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   }
 
   override def visitCompExprMatch(ctx: CompExprMatchContext): ExprTerm = {
-    // Simplified implementation - would need pattern matching support
     val scrutinee = ctx.typedExpr.visit
     val cases = ctx.caseClause.asScala.map(visitCaseClause).toList
-    // For now, return the scrutinee - actual pattern matching would be more complex
-    scrutinee.withSpan(ctx)
+    ??? // TODO: Implement pattern matching
   }
 
   override def visitCompExprTrait(ctx: CompExprTraitContext): ExprTerm = {
@@ -300,16 +291,10 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     }
   }
 
-//  private def visitCaseClause(ctx: CaseClauseContext): (Pattern, ExprTerm) = {
-//    // Placeholder - would need proper pattern implementation
-//    (Pattern.Wildcard, ctx.expr.visit)
-//  }
-
   extension (ctx: SelfAnnoContext) {
     def visit: SelfAnnotation = SelfAnnotation(ctx.name.getText, Option(ctx.`type`).map(_.visit))
   }
 
-  // Extension methods for various contexts
   extension (ctx: TermNameDeclContext) {
     def visit: String = ctx.getText
   }
@@ -326,37 +311,48 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   }
 
   extension (ctx: StmtContext) {
-    def visit: Statement = ???
-//    def visit: Statement = ctx match {
-//      case exprCtx: StmtExprContext =>
-//        Statement.Expression(exprCtx.expr.visit)
-//      case refAssignCtx: StmtRefAssignContext =>
-//        Statement.RefAssign(refAssignCtx.lhs.visit, refAssignCtx.rhs.visit)
-//      case letCtx: StmtLetContext =>
-//        Statement.Let(letCtx.name.getText, letCtx.value.visit)
-//      case letRecCtx: StmtLetRecContext =>
-//        val name = letRecCtx.name.getText
-//        val typeParams = Option(letRecCtx.typeParams).map(_.visit).getOrElse(Nil)
-//        val params = letRecCtx.params.asScala.flatMap(_.visit).toList
-//        val returnType = letRecCtx.ty.visit
-//        val value = letRecCtx.value.visit
-//
-//        // Create fixpoint for recursive function
-//        val funcBody = value.foldLambda(params)
-//        val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
-//        // Apply type parameters if any
-//        val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
-//
-//        Statement.LetRec(name, typedFixpoint, returnType)
-//      case letTupleCtx: StmtLetTupleDestructContext =>
-//        val names = letTupleCtx.names.asScala.map(_.getText).toList
-//        Statement.LetTupleDestruct(names, letTupleCtx.value.visit)
-//      case letRecordCtx: StmtLetRecordDestructContext =>
-//        val fields = letRecordCtx.fields.asScala.map { field =>
-//          field.name.getText -> field.alias.getText
-//        }.toMap
-//        Statement.LetRecordDestruct(fields, letRecordCtx.value.visit)
-//    }
+    def visit: Statement = ctx match {
+
+      case exprCtx: StmtExprContext =>
+        Statement.Expression(exprCtx.expr.visit)
+
+      case refAssignCtx: StmtRefAssignContext =>
+        Statement.RefAssign(refAssignCtx.ref.visit, refAssignCtx.value.visit)
+
+      case letCtx: StmtLetContext => {
+        val typeParams = Option(letCtx.typeParams).map(_.visit).getOrElse(Nil)
+        val params = letCtx.params.asScala.flatMap(_.visit).toList
+        val value = letCtx.value.visit
+        // Handle function with parameters
+        val func = if (params.isEmpty) value else value.foldLambda(params)
+        // Apply type parameters if any
+        val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
+        Statement.Let(letCtx.name.getText, typedFunc)
+      }
+
+      case letRecCtx: StmtLetRecContext => {
+        val name = letRecCtx.name.getText
+        val typeParams = Option(letRecCtx.typeParams).map(_.visit).getOrElse(Nil)
+        val params = letRecCtx.params.asScala.flatMap(_.visit).toList
+        val returnType = letRecCtx.ty.visit
+        val value = letRecCtx.value.visit
+        // Create fixpoint for recursive function
+        val funcBody = value.foldLambda(params)
+        val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
+        // Apply type parameters if any
+        val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
+        Statement.LetRec(name, typedFixpoint, returnType)
+      }
+
+      case letTupleCtx: StmtLetTupleContext =>
+        val names = letTupleCtx.names.asScala.map(_.getText).toList
+        Statement.LetTupleDestruct(names, letTupleCtx.value.visit)
+      case letRecordCtx: StmtLetRecordContext =>
+        val fields = letRecordCtx.fields.asScala.map { field =>
+          field.name.getText -> field.alias.getText
+        }.toMap
+        Statement.LetRecordDestruct(fields, letRecordCtx.value.visit)
+    }
   }
 
   extension (ctx: AtomicExprContext) {
@@ -481,24 +477,25 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   override def visitTypeApp(ctx: TypeAppContext): ExprType = {
     val func = ctx.ty.visit
     val args = ctx.args.asScala.map(_.visit).toList
-
     // Apply type arguments sequentially
     args.foldLeft(func) { (currentFunc, arg) =>
       ExprType.Apply(currentFunc, arg)
-    }
+    }.withSpan(ctx)
   }
 
   override def visitTypeSpine(ctx: TypeSpineContext): ExprType = {
-    ??? // TODO
+    val baseType = ctx.typeWithSort.visit
+    val args = ctx.args.asScala.map(_.visit).toList
+    // Apply spine arguments sequentially
+    args.foldLeft(baseType) { (currentType, arg) =>
+      ExprType.Apply(currentType, arg)
+    }.withSpan(ctx)
   }
 
   override def visitTypeWithSort(ctx: TypeWithSortContext): ExprType = {
     val baseType = ctx.typeLiteral.visit
     val sorts = Option(ctx.sort).map(_.asScala.map(_.visit).toList).getOrElse(Nil)
-
-    // Handle sorts - for now, just return the base type
-    // In a complete implementation, sorts would constrain the type
-    baseType
+    ??? // TODO: Apply sorts to baseType
   }
 
   override def visitTypeIdent(ctx: TypeIdentContext): ExprType = {
@@ -527,7 +524,6 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
 
   override def visitTypeParen(ctx: TypeParenContext): ExprType = ctx.ty.visit
 
-  // Helper methods for sort processing
   extension (ctx: SortContext) {
     def visit: (ExprType, Option[ExprType]) = {
       val inType = ctx.inType.visit
@@ -536,7 +532,6 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     }
   }
 
-  // Extension methods for type contexts
   extension (ctx: TypeContext) {
     def visit: ExprType = ctx match {
       case ctx: TypeIntersectContext => visitTypeIntersect(ctx)
@@ -566,12 +561,9 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   }
 
   extension (ctx: RecordTypeFieldContext) {
-    def visit: (String, ExprType) = {
-      (ctx.ident.getText, ctx.ty.visit)
-    }
+    def visit: (String, ExprType) = (ctx.ident.getText, ctx.ty.visit)
   }
-  
-  // Pattern matching would need a separate Pattern ADT implementation
+
   enum Pattern {
     case Wildcard
     case Variable(name: String)

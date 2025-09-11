@@ -36,7 +36,7 @@ type
     |   TraitType Less inType=type (FatArrow outType=type)? Greater        # typeTrait
     |   RefType typeWithSort                                # typeRef
     |   ty=typeWithSort BracketOpen args+=typeWithSort (Comma args+=typeWithSort)* BracketClose     # typeApp
-    |   typeWithSort typeWithSort*                          # typeSpine
+    |   typeWithSort args+=typeWithSort*                    # typeSpine
     ;
 
 typeWithSort
@@ -105,15 +105,19 @@ spineArg
 stmt
     :   expr=typedExpr      # stmtExpr
         // let a: T = e
-    |   Let variable=termNameDecl (Colon type)? Assign expr=typedExpr   # stmtLet
+    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)? Assign value=typedExpr   # stmtLet
         // letrec f (x: T1) ... (y: Tn): T = e
-    |   LetRec variable=termNameDecl typeParams=typeParamList? termParamGroup* Colon ty=type Assign expr=typedExpr  # stmtLetRec
+    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon ty=type Assign value=typedExpr  # stmtLetRec
         // let (x, y, z) = e
-    |   Let ParenOpen variables+=termNameDecl (Comma variables+=termNameDecl)* ParenClose Assign expr=typedExpr     # stmtLetTuple
+    |   Let ParenOpen names+=termNameDecl (Comma names+=termNameDecl)* ParenClose Assign value=typedExpr     # stmtLetTuple
         // let { l1 = e1; l2 = e2; ... } = e
-    |   Let BraceOpen recordFields+=labelDecl (Comma recordFields+=labelDecl)* BraceClose Assign expr=typedExpr     # stmtLetRecord
+    |   Let BraceOpen fields+=recordFieldAlias (Comma fields+=recordFieldAlias)* BraceClose Assign value=typedExpr     # stmtLetRecord
         // r := e
     |   ref=excludeExpr Walrus value=typedExpr    # stmtRefAssign
+    ;
+
+recordFieldAlias
+    :   name=labelDecl Assign alias=labelDecl
     ;
 
 typeParamList
