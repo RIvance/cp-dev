@@ -1,9 +1,9 @@
 package cp.syntax
 
-import cp.core.LiteralType
+import cp.core.{LiteralType, Type}
 import cp.util.SourceSpan
 
-enum ExprType {
+enum ExprType extends Synthesis[Type] {
 
   case Primitive(ty: LiteralType)
 
@@ -39,4 +39,6 @@ enum ExprType {
     case ExprType.Span(_, _) => this
     case _ => ExprType.Span(this, span)
   }
+
+  override def synthesize: Type = ???
 }

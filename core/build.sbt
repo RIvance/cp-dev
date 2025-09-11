@@ -8,5 +8,6 @@ libraryDependencies ++= Seq(
 
 lazy val root = (project in file("."))
   .settings(
-    name := "core"
+    name := "core",
+    idePackagePrefix := Some("cp")
   )

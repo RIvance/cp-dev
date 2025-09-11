@@ -1,9 +1,9 @@
 package cp.syntax
 
-import cp.core.{Literal, LiteralType}
+import cp.core.*
 import cp.util.SourceSpan
 
-enum ExprTerm {
+enum ExprTerm extends Synthesis[(Term, Type)] {
 
   case Primitive(value: Literal)
 
@@ -49,7 +49,7 @@ enum ExprTerm {
   case Update(record: ExprTerm, updates: Map[String, ExprTerm])
 
   case Trait(
-    selfAnno: SelfAnnotation,
+    selfAnno: SelfAnnotation[ExprType],
     implements: Option[ExprType],
     inherits: Option[ExprTerm], body: ExprTerm
   )
@@ -86,6 +86,8 @@ enum ExprTerm {
     case ExprTerm.Span(_, _) => this
     case _ => ExprTerm.Span(this, span)
   }
+
+  override def synthesize: (Term, Type) = ???
 }
 
 object ExprTerm {
@@ -95,9 +97,3 @@ object ExprTerm {
   def unit: ExprTerm = ExprTerm.Primitive(Literal.UnitValue)
 }
 
-enum MergeBias { case Neutral, Left, Right }
-
-case class SelfAnnotation(
-  name: String,
-  ty: Option[ExprType],
-)
