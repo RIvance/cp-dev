@@ -3,6 +3,7 @@ package cp.core
 class Module(
   val types: Map[String, Type],
   val terms: Map[String, Term],
+  val submodules: Map[String, Module] = Map.empty,
   val dependencies: Set[ExportedModule] = Set.empty
 ) {
   def exportSymbols(exported: Set[String]): ExportedModule = {
@@ -23,5 +24,9 @@ case class ExportedModule(
 
   lazy val terms: Map[String, Term] = {
     module.terms.filter { case (name, _) => exportedSymbols.contains(name) }
+  }
+  
+  lazy val submodules: Map[String, Module] = {
+    module.submodules.filter { case (name, _) => exportedSymbols.contains(name) }
   }
 }

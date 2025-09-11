@@ -27,7 +27,9 @@ enum Term {
 
   def check(ty: Type)(using env: Environment): Boolean = ???
 
-  def eval(mode: EvalMode)(using env: Environment): Term = ???
+  def eval(mode: EvalMode = EvalMode.Normalize)(using env: Environment): Term = ???
+  
+  def normalize(using env: Environment = Environment.empty): Term = eval(EvalMode.Normalize)
 }
 
 object Term {

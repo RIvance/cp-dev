@@ -1,12 +1,30 @@
 package cp.parser
 
 import cp.syntax.{ExprTerm, ExprType}
+import cp.util.SourceSpan
 
-enum Statement {
-  case Expression(expr: ExprTerm)
-  case RefAssign(reference: ExprTerm, value: ExprTerm)
-  case Let(name: String, value: ExprTerm)
-  case LetRec(name: String, value: ExprTerm, expectedType: ExprType)
-  case LetTupleDestruct(names: List[String], value: ExprTerm)
-  case LetRecordDestruct(fields: Map[String, String], value: ExprTerm)
+enum Statement(val span: SourceSpan) {
+  case Expression(
+    expr: ExprTerm
+  )(implicit span: SourceSpan) extends Statement(span)
+  
+  case RefAssign(
+    reference: ExprTerm, value: ExprTerm
+  )(implicit span: SourceSpan) extends Statement(span)
+  
+  case Let(
+    name: String, value: ExprTerm
+  )(implicit span: SourceSpan) extends Statement(span)
+  
+  case LetRec(
+    name: String, value: ExprTerm, expectedType: ExprType
+  )(implicit span: SourceSpan) extends Statement(span)
+  
+  case LetTupleDestruct(
+    names: List[String], value: ExprTerm)(implicit span: SourceSpan
+  ) extends Statement(span)
+  
+  case LetRecordDestruct(
+    fields: Map[String, String], value: ExprTerm
+  )(implicit span: SourceSpan) extends Statement(span)
 }

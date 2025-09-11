@@ -48,6 +48,18 @@ StringLit
 
 /* KEYWORDS */
 
+Module
+    :   'module'
+    ;
+
+Import
+    :   'import'
+    ;
+
+Main
+    :   'main'
+    ;
+
 Type
     :   'type'
     ;
@@ -370,6 +382,9 @@ Question
     :   '?'
     ;
 
+PathSep
+    :   '::'
+    ;
 
 /* BRACKETS */
 

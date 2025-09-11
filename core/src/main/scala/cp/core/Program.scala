@@ -1,8 +1,9 @@
 package cp.core
 
 class Program(
-  val types: Map[String, Type],
-  val terms: Map[String, Term],
+  val defaultModule: Module,
   val main: Term,
-  val dependencies: Set[ExportedModule] = Set.empty,
-)
+) {
+  def terms: Map[String, Term] = defaultModule.terms
+  def types: Map[String, Type] = defaultModule.types
+}

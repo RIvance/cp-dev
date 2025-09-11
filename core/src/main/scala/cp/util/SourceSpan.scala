@@ -22,6 +22,10 @@ case class SourceSpan(start: Int, end: Int) {
   }
 }
 
+trait OptionalSpanned[T] {
+  def withSpan(span: SourceSpan): T
+}
+
 case class SourcePosition(line: Int, column: Int) {
   def isEqual(other: SourcePosition): Boolean = {
     line == other.line && column == other.column

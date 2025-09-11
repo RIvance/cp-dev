@@ -2,20 +2,22 @@ package cp.parser
 
 import cp.ast.CpParser.*
 import cp.ast.CpParserBaseVisitor
-import cp.core.{Literal, LiteralType}
+import cp.core.*
 import cp.syntax.*
 import org.antlr.v4.runtime.ParserRuleContext
 
 import scala.jdk.CollectionConverters.*
 
-class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
+class Visitor extends CpParserBaseVisitor[
+  RawModule | RawProgram | Definition | Statement | ExprTerm | ExprType
+] {
 
   extension (self: ExprType) {
-    def withSpan(implicit ctx: ParserRuleContext): ExprType = self.withSpan(ctx.span)
+    def withSpan(ctx: ParserRuleContext): ExprType = self.withSpan(ctx.span)
   }
 
   extension (self: ExprTerm) {
-    def withSpan(implicit ctx: ParserRuleContext): ExprTerm = self.withSpan(ctx.span)
+    def withSpan(ctx: ParserRuleContext): ExprTerm = self.withSpan(ctx.span)
 
     def foldLambda(params: Seq[(String, Option[ExprType])]): ExprTerm = params.foldRight(self) {
       case ((paramIdent, paramType), acc) => ExprTerm.Lambda(paramIdent, paramType, acc)
@@ -26,6 +28,60 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     }
   }
 
+  override def visitModule(ctx: ModuleContext): RawModule = {
+    val definitions = ctx.definitions.asScala.map(visitDefinition).toList
+    RawModule(definitions)
+  }
+
+  override def visitProgram(ctx: ProgramContext): RawProgram = {
+    val defaultModule = RawModule(ctx.definitions.asScala.map(visitDefinition).toList)
+    val mainExpr: ExprTerm = ctx.main match {
+      case mainCtx: MainExprContext => mainCtx.expr.visit
+      case mainCtx: MainAssignExprContext => mainCtx.expr.visit
+      case mainCtx: MainBlockContext => ??? // TODO: main block
+    }
+    RawProgram(defaultModule, mainExpr)
+  }
+
+  def visitDefinition(ctx: DefinitionContext): Definition = ctx match {
+    case ctx: InterfaceDefinitionContext => {
+      // interface EqPoint { x: Int; y: Int; eq: EqPoint → Bool };
+      // -- is equivalent to:
+      // type EqPoint = fix EqPoint. { x: Int; y: Int; eq: EqPoint → Bool };
+      val name = ctx.`def`.name.getText
+      val sorts = ctx.`def`.sorts.asScala
+      val params = ctx.`def`.params.visit
+      val body = visitRecordType(ctx.`def`.body)
+      ??? // TODO
+    }
+    case ctx: TypeDefinitionContext => {
+      val name = ctx.`def`.name.getText
+      val typeParams = ctx.`def`.params.visit
+      val ty: ExprType = ctx.`def`.body.visit
+      // Wrap type in forall quantifiers if there are type parameters
+      val fullType: ExprType = typeParams.foldRight(ty) { 
+        (param, acc: ExprType) => ExprType.Forall(param, acc)
+      }.withSpan(ctx)
+      Definition.TypeDef(name, fullType).withSpan(ctx.span)
+    }
+    case ctx: TermDefinitionContext => {
+      val name = ctx.`def`.name.getText
+      val typeParams = Option(ctx.`def`.typeParams).map(_.visit).getOrElse(List.empty)
+      val params = ctx.`def`.params.asScala.flatMap(_.visit).toList
+      val value = ctx.`def`.body.visit
+      // Handle function with parameters
+      val func = if params.isEmpty then value else value.foldLambda(params)
+      // Apply type parameters if any
+      val typedFunc = if typeParams.isEmpty then func else func.foldTypeLambda(typeParams)
+      Definition.TermDef(name, typedFunc).withSpan(ctx.span)
+    }
+    case ctx: SubmoduleDefinitionContext => {
+      val name = ctx.`def`.name.getText
+      val module = visitModule(ctx.`def`.module)
+      Definition.SubmodDef(name, module).withSpan(ctx.span)
+    }
+  }
+  
   extension (ctx: ExpressionContext) {
     def visit: ExprTerm = ctx match {
       case ctx: ExpressionComplexContext => visitExpressionComplex(ctx)
@@ -147,7 +203,7 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     // Handle multiple parameters by nesting lambdas
     params.foldRight(body) { case ((paramIdent, paramType), acc: ExprTerm) =>
       ExprTerm.Lambda(paramIdent, paramType, acc)
-    }.asInstanceOf[ExprTerm].withSpan(ctx)
+    }.withSpan(ctx)
   }
 
   override def visitCompExprTypeLambda(ctx: CompExprTypeLambdaContext): ExprTerm = {
@@ -156,7 +212,7 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     // Nest type lambdas for each type parameter
     typeParams.foldRight(body) { (param, acc: ExprTerm) =>
       ExprTerm.TypeLambda(param, acc)
-    }.asInstanceOf[ExprTerm].withSpan(ctx)
+    }.withSpan(ctx)
   }
 
   override def visitCompExprLetIn(ctx: CompExprLetInContext): ExprTerm = {
@@ -208,12 +264,12 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     val body = ctx.expr.visit
 
     ExprTerm.Trait(
-      selfAnno.getOrElse(SelfAnnotation("self", None)), 
+      selfAnno.getOrElse(SelfAnnotation[ExprType]("self", None)), 
       implements, inherits, body
     ).withSpan(ctx)
   }
   
-  extension (ctx: SelfAnnotation) def visit: SelfAnnotation = SelfAnnotation(ctx.name, ctx.ty)
+  extension (ctx: SelfAnnotation[ExprType]) def visit: SelfAnnotation[ExprType] = SelfAnnotation[ExprType](ctx.name, ctx.ty)
 
   override def visitCompExprNewTrait(ctx: CompExprNewTraitContext): ExprTerm = {
     ExprTerm.New(ctx.expr.visit).withSpan(ctx)
@@ -292,7 +348,7 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   }
 
   extension (ctx: SelfAnnoContext) {
-    def visit: SelfAnnotation = SelfAnnotation(ctx.name.getText, Option(ctx.`type`).map(_.visit))
+    def visit: SelfAnnotation[ExprType] = SelfAnnotation[ExprType](ctx.name.getText, Option(ctx.`type`).map(_.visit))
   }
 
   extension (ctx: TermNameDeclContext) {
@@ -310,49 +366,54 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     }
   }
 
-  extension (ctx: StmtContext) {
-    def visit: Statement = ctx match {
+  def visitStatement(ctx: StmtContext): Statement = ctx match {
 
-      case exprCtx: StmtExprContext =>
-        Statement.Expression(exprCtx.expr.visit)
+    case exprCtx: StmtExprContext =>
+      Statement.Expression(exprCtx.expr.visit)(ctx.span)
 
-      case refAssignCtx: StmtRefAssignContext =>
-        Statement.RefAssign(refAssignCtx.ref.visit, refAssignCtx.value.visit)
+    case refAssignCtx: StmtRefAssignContext =>
+      Statement.RefAssign(refAssignCtx.ref.visit, refAssignCtx.value.visit)(ctx.span)
 
-      case letCtx: StmtLetContext => {
-        val typeParams = Option(letCtx.typeParams).map(_.visit).getOrElse(Nil)
-        val params = letCtx.params.asScala.flatMap(_.visit).toList
-        val value = letCtx.value.visit
-        // Handle function with parameters
-        val func = if (params.isEmpty) value else value.foldLambda(params)
-        // Apply type parameters if any
-        val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
-        Statement.Let(letCtx.name.getText, typedFunc)
-      }
-
-      case letRecCtx: StmtLetRecContext => {
-        val name = letRecCtx.name.getText
-        val typeParams = Option(letRecCtx.typeParams).map(_.visit).getOrElse(Nil)
-        val params = letRecCtx.params.asScala.flatMap(_.visit).toList
-        val returnType = letRecCtx.ty.visit
-        val value = letRecCtx.value.visit
-        // Create fixpoint for recursive function
-        val funcBody = value.foldLambda(params)
-        val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
-        // Apply type parameters if any
-        val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
-        Statement.LetRec(name, typedFixpoint, returnType)
-      }
-
-      case letTupleCtx: StmtLetTupleContext =>
-        val names = letTupleCtx.names.asScala.map(_.getText).toList
-        Statement.LetTupleDestruct(names, letTupleCtx.value.visit)
-      case letRecordCtx: StmtLetRecordContext =>
-        val fields = letRecordCtx.fields.asScala.map { field =>
-          field.name.getText -> field.alias.getText
-        }.toMap
-        Statement.LetRecordDestruct(fields, letRecordCtx.value.visit)
+    case letCtx: StmtLetContext => {
+      val typeParams = Option(letCtx.typeParams).map(_.visit).getOrElse(Nil)
+      val params = letCtx.params.asScala.flatMap(_.visit).toList
+      val value = letCtx.value.visit
+      // Handle function with parameters
+      val func = if (params.isEmpty) value else value.foldLambda(params)
+      // Apply type parameters if any
+      val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
+      Statement.Let(letCtx.name.getText, typedFunc)(ctx.span)
     }
+
+    case letRecCtx: StmtLetRecContext => {
+      val name = letRecCtx.name.getText
+      val typeParams = Option(letRecCtx.typeParams).map(_.visit).getOrElse(Nil)
+      val params = letRecCtx.params.asScala.flatMap(_.visit).toList
+      val returnType = letRecCtx.ty.visit
+      val value = letRecCtx.value.visit
+      // Create fixpoint for recursive function
+      val funcBody = value.foldLambda(params)
+      val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
+      // Apply type parameters if any
+      val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
+      Statement.LetRec(name, typedFixpoint, returnType)(ctx.span)
+    }
+
+    case letTupleCtx: StmtLetTupleContext => {
+      val names = letTupleCtx.names.asScala.map(_.getText).toList
+      Statement.LetTupleDestruct(names, letTupleCtx.value.visit)(ctx.span)
+    }
+
+    case letRecordCtx: StmtLetRecordContext => {
+      val fields = letRecordCtx.fields.asScala.map { field =>
+        field.name.getText -> field.alias.getText
+      }.toMap
+      Statement.LetRecordDestruct(fields, letRecordCtx.value.visit)(ctx.span)
+    }
+  }
+
+  extension (ctx: StmtContext) {
+    def visit: Statement = visitStatement(ctx)
   }
 
   extension (ctx: AtomicExprContext) {
@@ -371,45 +432,57 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
         ExprTerm.Primitive(Literal.UnitValue)
       case boolCtx: AtomicExprBoolContext =>
         ExprTerm.Primitive(Literal.BoolValue(boolCtx.BoolLit.getText == "true"))
-      case arrayCtx: AtomicExprArrayContext => ExprTerm.ArrayLiteral(arrayCtx.array.visitArrayElements)
-      case recordCtx: AtomicExprRecordContext => recordCtx.record.visit
-      case tupleCtx: AtomicExprTupleContext => tupleCtx.tuple.visit
-      case updateCtx: AtomicExprRecordUpdateContext => updateCtx.recordUpdate.visit
-      case ctorCtx: AtomicExprCtorContext => ExprTerm.Variable(ctorCtx.ctorName.getText)
-      case parenCtx: AtomicExprParenContext => parenCtx.typedExpr.visit
-      case blockCtx: AtomicExprBlockContext =>
+      case arrayCtx: AtomicExprArrayContext => 
+        ExprTerm.ArrayLiteral(arrayCtx.array.visitArrayElements)
+      case recordCtx: AtomicExprRecordContext => 
+        recordCtx.record.visit
+      case tupleCtx: AtomicExprTupleContext => 
+        tupleCtx.tuple.visit
+      case updateCtx: AtomicExprRecordUpdateContext => 
+        updateCtx.recordUpdate.visit
+      case ctorCtx: AtomicExprCtorContext => 
+        ExprTerm.Variable(ctorCtx.ctorName.getText)
+      case parenCtx: AtomicExprParenContext => 
+        parenCtx.typedExpr.visit
+        
+      case blockCtx: AtomicExprBlockContext => {
         val stmts = blockCtx.stmt.asScala.map(_.visit).toList
         val lastExpr = Option(blockCtx.typedExpr).map(_.visit)
         // Convert statements to nested lets
-        stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { (stmt, acc) =>
-          stmt match {
+        stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { 
+          (stmt, acc) => stmt match {
             case Statement.RefAssign(reference, value) =>
-              ExprTerm.Effective(PureEffect.RefAssign[ExprTerm, ExprType](reference, value), acc)
+              ExprTerm.Effective(
+                PureEffect.RefAssign[ExprTerm, ExprType](reference, value), acc
+              ).withSpan(stmt.span)
             case Statement.Let(name, value) =>
-              ExprTerm.LetIn(name, value, acc)
+              ExprTerm.LetIn(name, value, acc).withSpan(stmt.span)
             case Statement.LetRec(name, value, _) =>
-              ExprTerm.LetRecIn(name, value, acc)
+              ExprTerm.LetRecIn(name, value, acc).withSpan(stmt.span)
             case Statement.LetTupleDestruct(_, _) => ???
             case Statement.LetRecordDestruct(_, _) => ???
             case Statement.Expression(expr) =>
-              ExprTerm.Effective(PureEffect.Exec(expr), acc)
+              ExprTerm.Effective(PureEffect.Exec(expr), acc).withSpan(stmt.span)
           }
         }
-      case appCtx: AtomicExprAppContext =>
+      }
+      
+      case appCtx: AtomicExprAppContext => {
         val func = appCtx.atomicExpr.visit
         val args = appCtx.args.asScala.map(_.visit).toList
         ExprTerm.Apply(func, args)
-      case typeAppCtx: AtomicExprTypeAppContext =>
+      }
+      
+      case typeAppCtx: AtomicExprTypeAppContext => {
         val term = typeAppCtx.atomicExpr.visit
         val typeArgs = typeAppCtx.args.asScala.map(_.visit)
         ExprTerm.TypeApply(term, typeArgs.toList)
+      }
     }
   }
 
   extension (ctx: ArrayContext) {
-    def visitArrayElements: List[ExprTerm] = {
-      ctx.elements.asScala.map(_.visit).toList
-    }
+    def visitArrayElements: List[ExprTerm] = ctx.elements.asScala.map(_.visit).toList
   }
 
   extension (ctx: RecordContext) def visit: ExprTerm = {
@@ -432,7 +505,6 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
     }.toMap
     ExprTerm.Update(record, updates)
   }
-
 
   // Type expressions
   override def visitTypeIntersect(ctx: TypeIntersectContext): ExprType = {
@@ -519,7 +591,7 @@ class Visitor extends CpParserBaseVisitor[ExprTerm | ExprType | Statement] {
   }
 
   override def visitTypeArray(ctx: TypeArrayContext): ExprType = {
-    ExprType.Array(ctx.ty.visit)
+    ExprType.Array(ctx.ty.visit).withSpan(ctx)
   }
 
   override def visitTypeParen(ctx: TypeParenContext): ExprType = ctx.ty.visit

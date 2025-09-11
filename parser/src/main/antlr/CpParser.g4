@@ -5,25 +5,51 @@ options {
 }
 
 program
-    :   definitions+=definition* expr=typedExpr EOF
+    :   (imports+=importing)* definitions+=definition* main EOF
+    ;
+
+main
+    :   expr=typedExpr  # mainExpr
+    |   Main Assign expr=typedExpr Semicolon  # mainAssignExpr
+    |   Main BraceOpen statements=stmt* BraceClose Semicolon?  # mainBlock
+    ;
+
+module
+    :   definitions+=definition* EOF
+    ;
+
+importing
+    :   Import moduleTree Semicolon
+    ;
+
+moduleTree
+    :   Asterisk  # moduleTreeWildcard
+    |   name=(LowerId | UpperId)  # moduleTreeLeaf
+    |   parent=moduleName PathSep child=moduleTree  # moduleTreeNode
+    |   parent=moduleName PathSep BraceOpen children+=moduleTree (Comma children+=moduleTree)* Comma? BraceClose  # moduleTreeBranch
     ;
 
 definition
-    :   interfaceDef
-    |   typeDef
-    |   termDef
+    :   def=interfaceDef        # interfaceDefinition
+    |   def=typeDef             # typeDefinition
+    |   def=termDef             # termDefinition
+    |   def=submoduleDef        # submoduleDefinition
     ;
 
 interfaceDef
-    :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? typeParamList? (Extends extends=typeWithSort)? recordType Semicolon
+    :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList? (Extends extends=typeWithSort)? body=recordType Semicolon
     ;
 
 typeDef
-    :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? typeParamList? Assign ty=type Semicolon
+    :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList? Assign body=type Semicolon
     ;
 
 termDef
-    :   Def? name=termNameDecl typeParams=typeParamList? paramGroups+=termParamGroup* (Colon ty=type)? Assign expr=typedExpr Semicolon
+    :   Def? name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)? Assign body=typedExpr Semicolon
+    ;
+
+submoduleDef
+    :   Module name=moduleName BraceOpen module BraceClose
     ;
 
 type
@@ -249,6 +275,11 @@ selfAnno
 
 sort
     :   inType=type (FatArrow outType=type)?
+    ;
+
+moduleName
+    :   LowerId
+    |   UpperId
     ;
 
 typeNameDecl

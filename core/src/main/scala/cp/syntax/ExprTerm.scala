@@ -1,9 +1,9 @@
 package cp.syntax
 
 import cp.core.*
-import cp.util.SourceSpan
+import cp.util.{OptionalSpanned, SourceSpan}
 
-enum ExprTerm extends Synthesis[(Term, Type)] {
+enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
 
   case Primitive(value: Literal)
 
@@ -82,7 +82,7 @@ enum ExprTerm extends Synthesis[(Term, Type)] {
 
   case Span(term: ExprTerm, span: SourceSpan)
 
-  def withSpan(span: SourceSpan): ExprTerm = this match {
+  override def withSpan(span: SourceSpan): ExprTerm = this match {
     case ExprTerm.Span(_, _) => this
     case _ => ExprTerm.Span(this, span)
   }

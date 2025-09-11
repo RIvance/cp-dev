@@ -22,3 +22,7 @@ case class Environment(
   def freshVarName: String =
     Iterator.from(0).map(n => s"_v$n").find(!typeVars.contains(_)).get
 }
+
+object Environment {
+  def empty: Environment = Environment()
+}

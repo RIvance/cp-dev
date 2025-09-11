@@ -1,6 +1,6 @@
 package cp.syntax
 
-import cp.core.{Type, Term}
+import cp.util.SourceSpan
 
 trait Synthesis[Target] {
   def synthesize: Target
