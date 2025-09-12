@@ -82,9 +82,11 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
     case _ => ExprTerm.Span(this, span)
   }
 
-  override def synthesize(using env: Environment = Environment.empty): (Term, Type) = {
+  override def synthesize(using env: Environment): (Term, Type) = synthesize(None)(using env)
+
+  def synthesize(ty: Option[Type])(using env: Environment): (Term, Type) = {
     this match {
-      case ExprTerm.Primitive(value) =>
+      case ExprTerm.Primitive(value) => {
         val ty = value match {
           case Literal.IntValue(_) => LiteralType.IntType
           case Literal.FloatValue(_) => LiteralType.FloatType
@@ -94,11 +96,16 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
           case Literal.UnitValue => LiteralType.UnitType
         }
         (Term.Primitive(value), Type.Primitive(ty))
+      }
 
-      case ExprTerm.Var(name) =>
-        (Term.Var(name), Type.Var(name))
+      case ExprTerm.Var(name) => {
+        env.termVars.get(name) match {
+          case Some(term) => (term, term.infer)
+          case None => UnresolvedReference.raise(s"Undefined term: $name")
+        }
+      }
 
-      case ExprTerm.Typed(expr, expectedTypeExpr) =>
+      case ExprTerm.Typed(expr, expectedTypeExpr) => {
         val (term, ty) = expr.synthesize
         val expectedType = expectedTypeExpr.synthesize
         if !(ty <:< expectedType) then {
@@ -106,14 +113,17 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
             s"Expected type: $expectedType, found: $ty"
           }
         } else (term, ty)
+      }
 
       case ExprTerm.Apply(fn, args) => {
         val (fnTerm, fnType) = fn.synthesize
         val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
           case ((accFnTerm: Term, accFnType: Type), arg) => {
-            val (argTerm, argType) = arg.synthesize
             accFnType match {
               case Type.Arrow(domain, codomain) => {
+                // When arg is a lambda without annotation, 
+                //  we need to infer its type from accFnType
+                val (argTerm, argType) = arg.synthesize(Some(domain))
                 if !argTerm.check(codomain) then TypeNotMatch.raise {
                   s"Expected argument type: $domain, found: $argType"
                 }
@@ -129,8 +139,27 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
           s"Function application term does not check against its type: $fnAppTerm : $fnAppType"
         } else (fnAppTerm, fnAppType)
       }
-        
-      case ExprTerm.Lambda(_, _, _) => ???
+
+      case ExprTerm.Lambda(paramName, paramTypeOpt, body) => {
+        val paramType: Type = paramTypeOpt match {
+          case Some(tyExpr) => tyExpr.synthesize
+          case None => ty match {
+            case Some(Type.Arrow(domain, _)) => domain
+            case _ => TypeNotMatch.raise {
+              s"Cannot infer parameter type of lambda without annotation: $this"
+            }
+          }
+        }
+        env.withTermVar(paramName, Term.Typed(Term.Var(paramName), paramType)) { env =>
+          val (bodyTerm, bodyType) = body.synthesize(using env)
+          val lambdaTerm = Term.Lambda(paramName, paramType, bodyTerm)
+          val lambdaType = Type.Arrow(paramType, bodyType)
+          if !lambdaTerm.check(lambdaType) then TypeNotMatch.raise {
+            s"Lambda term does not check against its type: $lambdaTerm : $lambdaType"
+          } else (lambdaTerm, lambdaType)
+        }
+      }
+      
       case ExprTerm.TypeLambda(_, _) => ???
       case ExprTerm.Fixpoint(_, _, _) => ???
       case ExprTerm.IfThenElse(_, _, _) => ???
@@ -157,7 +186,7 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
       case ExprTerm.Document(_) => ???
 
       case ExprTerm.Do(_, _) => ???
-      
+
       case ExprTerm.Span(term, span) => try term.synthesize catch {
         case e: CoreError => throw e.withSpan(span)
         case e: SpannedError => throw e

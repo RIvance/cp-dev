@@ -40,7 +40,5 @@ enum ExprType extends Synthesis[Type] with OptionalSpanned[ExprType] {
     case _ => ExprType.Span(this, span)
   }
 
-  override def synthesize(
-    using env: Environment = Environment.empty
-  ): Type = ???
+  override def synthesize(using env: Environment): Type = ???
 }
