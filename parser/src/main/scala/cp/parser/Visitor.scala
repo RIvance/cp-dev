@@ -106,39 +106,39 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitExpressionUnary(ctx: ExpressionUnaryContext): ExprTerm = {
-    ExprTerm.UnaryOp(ctx.op.getText, ctx.expression.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var(ctx.op.getText), List(ctx.expression.visit)).withSpan(ctx)
   }
 
   override def visitExpressionIndex(ctx: ExpressionIndexContext): ExprTerm = {
-    ExprTerm.Index(ctx.arr.visit, ctx.index.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("!!"), List(ctx.arr.visit, ctx.index.visit)).withSpan(ctx)
   }
 
   override def visitExpressionMulDiv(ctx: ExpressionMulDivContext): ExprTerm = {
-    ExprTerm.BinaryOp(ctx.op.getText, ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var(ctx.op.getText), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionAddSub(ctx: ExpressionAddSubContext): ExprTerm = {
-    ExprTerm.BinaryOp(ctx.op.getText, ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var(ctx.op.getText), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionAppend(ctx: ExpressionAppendContext): ExprTerm = {
-    ExprTerm.BinaryOp("++", ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("++"), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionComparison(ctx: ExpressionComparisonContext): ExprTerm = {
-    ExprTerm.BinaryOp(ctx.op.getText, ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var(ctx.op.getText), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionAnd(ctx: ExpressionAndContext): ExprTerm = {
-    ExprTerm.BinaryOp("&", ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("&"), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionOr(ctx: ExpressionOrContext): ExprTerm = {
-    ExprTerm.BinaryOp("|", ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("|"), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionForward(ctx: ExpressionForwardContext): ExprTerm = {
-    ExprTerm.BinaryOp("^", ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("^"), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
     
   }
 
@@ -151,7 +151,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitExpressionSeq(ctx: ExpressionSeqContext): ExprTerm = {
-    ExprTerm.BinaryOp("<<", ctx.lhs.visit, ctx.rhs.visit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("<<"), List(ctx.lhs.visit, ctx.rhs.visit)).withSpan(ctx)
   }
 
   override def visitExpressionRecordUpdate(ctx: ExpressionRecordUpdateContext): ExprTerm = {

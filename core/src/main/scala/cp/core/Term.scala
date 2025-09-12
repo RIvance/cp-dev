@@ -3,28 +3,45 @@ package cp.core
 import cp.core.Term.EvalMode
 
 enum Term {
-  case Var(name: String)
-  case Primitive(value: Literal)
-  case Apply(func: Term, arg: Term)
-  case TypeApply(term: Term, tyArg: Type)
-  case Lambda(param: String, paramType: Type, body: Term)
-  case TypeLambda(param: String, body: Term)
-  case Fixpoint(param: String, paramType: Type, body: Term)
-  case Projection(record: Term, field: String)
-  case Record(fields: Map[String, Term])
-  case Tuple(elements: List[Term])
-  case Merge(left: Term, right: Term, bias: MergeBias = MergeBias.Neutral)
-  // case Match
-  case ArrayLiteral(elements: List[Term])
-  case FoldFixpoint(fixpointType: Type, body: Term)
-  case UnfoldFixpoint(fixpointType: Type, term: Term)
   
+  case Var(name: String)
+
+  case Typed(term: Term, ty: Type)
+  
+  case Primitive(value: Literal)
+  
+  case Apply(func: Term, arg: Term)
+  
+  case TypeApply(term: Term, tyArg: Type)
+  
+  case Lambda(param: String, paramType: Type, body: Term)
+  
+  case TypeLambda(param: String, body: Term)
+  
+  case Fixpoint(param: String, paramType: Type, body: Term)
+  
+  case Projection(record: Term, field: String)
+  
+  case Record(fields: Map[String, Term])
+  
+  case Tuple(elements: List[Term])
+  
+  case Merge(left: Term, right: Term, bias: MergeBias = MergeBias.Neutral)
+  
+  // case Match(scrutinee: Term, clauses: List[Clause])
+  
+  case ArrayLiteral(elements: List[Term])
+  
+  case FoldFixpoint(fixpointType: Type, body: Term)
+  
+  case UnfoldFixpoint(fixpointType: Type, term: Term)
+
   // `Do` term will ensure that `expr` is evaluated before `body`.
   //  It is useful when `expr` has side effects (e.g. native procedure calls).
   //  The value of `Do` term is the value of `body` and the value of `expr` is discarded.
   //  It also plays a role as a barrier to prevent unwanted beta-reduction.
   case Do(expr: Term, body: Term)
-  
+
   // A reference to a memory/virtual address holding a value of given type.
   //   It can only be created/utilized by native procedures.
   case RefAddr(refType: Type, address: Long)
@@ -37,6 +54,7 @@ enum Term {
   // Only when the number of args equals the arity,
   //  the call can be fully evaluated to a Primitive term.
   case NativeFunctionCall(function: NativeFunction, args: List[Term])
+  
   // A native procedure is only evaluated in FULL eval mode.
   //  Similar to native function calls, it can be partially applied.
   case NativeProcedureCall(procedure: NativeProcedure, args: List[Term])

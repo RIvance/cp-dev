@@ -21,6 +21,23 @@ case class Environment(
 
   def freshVarName: String =
     Iterator.from(0).map(n => s"_v$n").find(!typeVars.contains(_)).get
+    
+  def withFreshTypeVar[T](f: (Type.Var, Environment) => T): T = {
+    val name = freshTypeName
+    val freshVar: Type.Var = Type.Var(name)
+    f(freshVar, addTypeVar(name, Type.Var(name)))
+  }
+
+  def withFreshTypeBinding[T](ty: Type)(f: (Type.Var, Environment) => T): T = {
+    val name = freshTypeName
+    f(Type.Var(name), addTypeVar(name, ty))
+  }
+
+  def withFreshTermVar[T](ty: Type)(f: (Term.Var, Environment) => T): T = {
+    val name = freshVarName
+    val freshVar: Term.Var = Term.Var(name)
+    f(freshVar, addTermVar(name, Term.Typed(Term.Var(name), ty)))
+  }
 }
 
 object Environment {

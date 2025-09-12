@@ -84,6 +84,10 @@ Extends
     :   'extends'
     ;
 
+Where
+    :   'where'
+    ;
+
 ForAll
     :   'forall'
     |   '∀'

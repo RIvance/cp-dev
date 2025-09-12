@@ -37,19 +37,30 @@ definition
     ;
 
 interfaceDef
-    :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList? (Extends extends=typeWithSort)? body=recordType Semicolon
+    :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
+            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            (Extends extends=typeWithSort)? body=recordType Semicolon
     ;
 
 typeDef
-    :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList? Assign body=type Semicolon
+    :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
+            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            Assign body=type Semicolon
     ;
 
 termDef
-    :   Def? name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)? Assign body=typedExpr Semicolon
+    :   Def? name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)?
+            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            Assign body=typedExpr Semicolon
     ;
 
 submoduleDef
     :   Module name=moduleName BraceOpen module BraceClose
+    ;
+
+// `where T * U` means T is disjoint from U
+disjointConstraint
+    :   ty=typeNameDecl Asterisk disjointness=type
     ;
 
 type

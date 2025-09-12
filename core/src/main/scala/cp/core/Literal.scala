@@ -26,9 +26,6 @@ enum Literal {
     case RuneValue(_) => LiteralType.RuneType
     case StringValue(_) => LiteralType.StringType
   }
-
-//  def toTerm: Term = term.Primitive(this)
-//  def toValue: Value = Value.Primitive(this)
 }
 
 object Literal {
@@ -58,7 +55,4 @@ enum LiteralType {
     case RuneType => "Char"
     case StringType => "String"
   }
-
-//  def toTerm: Term = term.PrimitiveType(this)
-//  def toValue: Value = Value.PrimitiveType(this)
 }

@@ -13,12 +13,6 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
 
   case Typed(expr: ExprTerm, expectedType: ExprType)
 
-  case UnaryOp(op: String, expr: ExprTerm)
-
-  case BinaryOp(op: String, left: ExprTerm, right: ExprTerm)
-
-  case Index(base: ExprTerm, index: ExprTerm)
-
   case Apply(fn: ExprTerm, args: List[ExprTerm])
 
   case Lambda(paramName: String, paramType: Option[ExprType], body: ExprTerm)
@@ -113,13 +107,29 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
           }
         } else (term, ty)
 
-      case ExprTerm.UnaryOp(_, _) => ???
-
-      case ExprTerm.BinaryOp(_, _, _) => ???
-
-      case ExprTerm.Index(_, _) => ???
-
-      case ExprTerm.Apply(_, _) => ???
+      case ExprTerm.Apply(fn, args) => {
+        val (fnTerm, fnType) = fn.synthesize
+        val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
+          case ((accFnTerm: Term, accFnType: Type), arg) => {
+            val (argTerm, argType) = arg.synthesize
+            accFnType match {
+              case Type.Arrow(domain, codomain) => {
+                if !argTerm.check(codomain) then TypeNotMatch.raise {
+                  s"Expected argument type: $domain, found: $argType"
+                }
+                (Term.Apply(accFnTerm, argTerm), codomain)
+              }
+              case _ => TypeNotMatch.raise {
+                s"Function application on a non-function type: $accFnType"
+              }
+            }
+          }
+        }
+        if !fnAppTerm.check(fnAppType) then TypeNotMatch.raise {
+          s"Function application term does not check against its type: $fnAppTerm : $fnAppType"
+        } else (fnAppTerm, fnAppType)
+      }
+        
       case ExprTerm.Lambda(_, _, _) => ???
       case ExprTerm.TypeLambda(_, _) => ???
       case ExprTerm.Fixpoint(_, _, _) => ???
@@ -145,6 +155,8 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
       case ExprTerm.Seq(_, _) => ???
       case ExprTerm.ArrayLiteral(_) => ???
       case ExprTerm.Document(_) => ???
+
+      case ExprTerm.Do(_, _) => ???
       
       case ExprTerm.Span(term, span) => try term.synthesize catch {
         case e: CoreError => throw e.withSpan(span)
