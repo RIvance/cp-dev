@@ -2,12 +2,12 @@ package cp.error
 
 import cp.util.SourceSpan
 
-trait Error extends Exception {
+trait SpannedError extends Exception {
   def message: String
   def infoSpans: Map[SourceSpan, String]
 }
 
-case class UnknownError(cause: Throwable, span: SourceSpan) extends Error {
+case class UnknownError(cause: Throwable, span: SourceSpan) extends SpannedError {
   override def message: String = cause.getMessage
   override def infoSpans: Map[SourceSpan, String] = Map(span -> cause.toString)
 }
@@ -16,13 +16,13 @@ case class SingleSpanError(
   kind: ErrorKind,
   info: String,
   span: SourceSpan,
-) extends Error {
+) extends SpannedError {
   override def message: String = kind.message
   override def infoSpans: Map[SourceSpan, String] = Map(span -> info)
 }
 
 case class CoreError(kind: ErrorKind, info: String) extends Exception {
-  def spanned(span: SourceSpan): Error = SingleSpanError(kind, info, span)
+  def withSpan(span: SourceSpan): SpannedError = SingleSpanError(kind, info, span)
   override def toString: String = s"Error: ${kind.message} - $info"
 }
 
@@ -52,7 +52,7 @@ enum CoreErrorKind(override val message: String) extends ErrorKind {
   case RecordMissingField extends CoreErrorKind("Missing field")
 
   def raise(info: => String): Nothing = throw CoreError(this, info)
-  def raise(span: SourceSpan)(info: => String): Nothing = throw CoreError(this, info).spanned(span)
+  def raise(span: SourceSpan)(info: => String): Nothing = throw CoreError(this, info).withSpan(span)
 }
 
 case class PanicError(message: String) extends Exception

@@ -1,7 +1,7 @@
 package cp.syntax
 
-import cp.core.{LiteralType, Type}
-import cp.util.{SourceSpan, OptionalSpanned}
+import cp.core.{Environment, LiteralType, Type}
+import cp.util.{OptionalSpanned, SourceSpan}
 
 enum ExprType extends Synthesis[Type] with OptionalSpanned[ExprType] {
 
@@ -40,5 +40,7 @@ enum ExprType extends Synthesis[Type] with OptionalSpanned[ExprType] {
     case _ => ExprType.Span(this, span)
   }
 
-  override def synthesize: Type = ???
+  override def synthesize(
+    using env: Environment = Environment.empty
+  ): Type = ???
 }

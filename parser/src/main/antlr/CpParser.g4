@@ -100,7 +100,7 @@ expression
     |   <assoc=right> lhs=expression Or rhs=expression              # expressionOr
     |   <assoc=left> lhs=expression Forward rhs=expression          # expressionForward
     |   <assoc=left> lhs=expression op=(Merge | LeftistMerge | RightistMerge | BackslashMinus) rhs=expression # expressionMerge
-    |   lhs=expression Walrus rhs=expression        # expressionRefAssign
+    |   ref=expression Walrus value=expression        # expressionRefAssign
     |   lhs=expression RightShift rhs=expression           # expressionSeq
     |   expression With BraceOpen (fields+=fieldAssign Semicolon)* fields+=fieldAssign? BraceClose # expressionRecordUpdate
     ;

@@ -1,13 +1,13 @@
 package cp.syntax
 
-import cp.core.Module
+import cp.core.{Environment, Module}
 
 case class RawModule(
   terms: Map[String, ExprTerm],
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
-) {
-  def synthesis: Module = ???
+) extends Synthesis[Module] {
+  override def synthesize(using env: Environment = Environment.empty): Module = ???
 }
 
 object RawModule {

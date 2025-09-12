@@ -1,15 +1,17 @@
 package cp.syntax
 
 import cp.core.*
+import cp.error.{CoreError, SpannedError, UnknownError}
+import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, SourceSpan}
 
 enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
 
   case Primitive(value: Literal)
 
-  case Variable(name: String)
+  case Var(name: String)
 
-  case Typed(expr: ExprTerm, ty: ExprType)
+  case Typed(expr: ExprTerm, expectedType: ExprType)
 
   case UnaryOp(op: String, expr: ExprTerm)
 
@@ -70,9 +72,8 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
 
   case UnfoldFixpoint(fixpointType: ExprType, term: ExprTerm)
 
-  case Effective(effect: PureEffect[ExprTerm, ExprType], body: ExprTerm)
-
-  case Neutral(neutral: NeutralEffect[ExprTerm, ExprType])
+  // See `cp.core.Term.Do` for explanation.
+  case Do(expr: ExprTerm, body: ExprTerm)
 
   case Seq(first: ExprTerm, second: ExprTerm)
 
@@ -87,7 +88,71 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
     case _ => ExprTerm.Span(this, span)
   }
 
-  override def synthesize: (Term, Type) = ???
+  override def synthesize(using env: Environment = Environment.empty): (Term, Type) = {
+    this match {
+      case ExprTerm.Primitive(value) =>
+        val ty = value match {
+          case Literal.IntValue(_) => LiteralType.IntType
+          case Literal.FloatValue(_) => LiteralType.FloatType
+          case Literal.BoolValue(_) => LiteralType.BoolType
+          case Literal.RuneValue(_) => LiteralType.RuneType
+          case Literal.StringValue(_) => LiteralType.StringType
+          case Literal.UnitValue => LiteralType.UnitType
+        }
+        (Term.Primitive(value), Type.Primitive(ty))
+
+      case ExprTerm.Var(name) =>
+        (Term.Var(name), Type.Var(name))
+
+      case ExprTerm.Typed(expr, expectedTypeExpr) =>
+        val (term, ty) = expr.synthesize
+        val expectedType = expectedTypeExpr.synthesize
+        if !(ty <:< expectedType) then {
+          TypeNotMatch.raise {
+            s"Expected type: $expectedType, found: $ty"
+          }
+        } else (term, ty)
+
+      case ExprTerm.UnaryOp(_, _) => ???
+
+      case ExprTerm.BinaryOp(_, _, _) => ???
+
+      case ExprTerm.Index(_, _) => ???
+
+      case ExprTerm.Apply(_, _) => ???
+      case ExprTerm.Lambda(_, _, _) => ???
+      case ExprTerm.TypeLambda(_, _) => ???
+      case ExprTerm.Fixpoint(_, _, _) => ???
+      case ExprTerm.IfThenElse(_, _, _) => ???
+      case ExprTerm.LetIn(_, _, _) => ???
+      case ExprTerm.LetRecIn(_, _, _) => ???
+      case ExprTerm.Record(_) => ???
+      case ExprTerm.Tuple(_) => ???
+      case ExprTerm.Merge(_, _, _) => ???
+      case ExprTerm.Projection(_, _) => ???
+      case ExprTerm.TypeApply(_, _) => ???
+      case ExprTerm.OpenIn(_, _) => ???
+      case ExprTerm.Update(_, _) => ???
+      case ExprTerm.Trait(_, _, _, _) => ???
+      case ExprTerm.New(_) => ???
+      case ExprTerm.Forward(_, _) => ???
+      case ExprTerm.Exclude(_, _) => ???
+      case ExprTerm.Remove(_, _) => ???
+      case ExprTerm.Diff(_, _) => ???
+      case ExprTerm.Rename(_, _) => ???
+      case ExprTerm.FoldFixpoint(_, _) => ???
+      case ExprTerm.UnfoldFixpoint(_, _) => ???
+      case ExprTerm.Seq(_, _) => ???
+      case ExprTerm.ArrayLiteral(_) => ???
+      case ExprTerm.Document(_) => ???
+      
+      case ExprTerm.Span(term, span) => try term.synthesize catch {
+        case e: CoreError => throw e.withSpan(span)
+        case e: SpannedError => throw e
+        case e: Throwable => throw UnknownError(e, span)
+      }
+    }
+  }
 }
 
 object ExprTerm {

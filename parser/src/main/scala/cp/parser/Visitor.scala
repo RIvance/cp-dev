@@ -147,7 +147,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitExpressionRefAssign(ctx: ExpressionRefAssignContext): ExprTerm = {
-    ExprTerm.Effective(PureEffect.RefAssign(ctx.lhs.visit, ctx.rhs.visit), ExprTerm.unit).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("#refAssign"), List(ctx.ref.visit, ctx.value.visit)).withSpan(ctx)
   }
 
   override def visitExpressionSeq(ctx: ExpressionSeqContext): ExprTerm = {
@@ -188,7 +188,7 @@ class Visitor extends CpParserBaseVisitor[
   override def visitCompCtorApp(ctx: CompCtorAppContext): ExprTerm = {
     val ctor = ctx.ctorName.getText
     val args = ctx.args.asScala.map(_.visit).toList
-    ExprTerm.Apply(ExprTerm.Variable(ctor), args).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var(ctor), args).withSpan(ctx)
   }
 
   override def visitCompExprApp(ctx: CompExprAppContext): ExprTerm = {
@@ -288,7 +288,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitCompExprRef(ctx: CompExprRefContext): ExprTerm = {
-    ExprTerm.Neutral(NeutralEffect.InitRef(ctx.dotExpr.visit))
+    ExprTerm.Apply(ExprTerm.Var("#refInit"), List(ctx.dotExpr.visit))
   }
 
   extension (ctx: ExcludeExprContext) def visit: ExprTerm = {
@@ -419,7 +419,7 @@ class Visitor extends CpParserBaseVisitor[
   extension (ctx: AtomicExprContext) {
     def visit: ExprTerm = ctx match {
       case varCtx: AtomicExprVarContext =>
-        ExprTerm.Variable(varCtx.termName.getText)
+        ExprTerm.Var(varCtx.termName.getText)
       case intCtx: AtomicExprIntContext =>
         ExprTerm.Primitive(Literal.IntValue(intCtx.IntLit.getText.toInt))
       case floatCtx: AtomicExprFloatContext =>
@@ -441,7 +441,7 @@ class Visitor extends CpParserBaseVisitor[
       case updateCtx: AtomicExprRecordUpdateContext => 
         updateCtx.recordUpdate.visit
       case ctorCtx: AtomicExprCtorContext => 
-        ExprTerm.Variable(ctorCtx.ctorName.getText)
+        ExprTerm.Var(ctorCtx.ctorName.getText)
       case parenCtx: AtomicExprParenContext => 
         parenCtx.typedExpr.visit
         
@@ -452,9 +452,12 @@ class Visitor extends CpParserBaseVisitor[
         stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { 
           (stmt, acc) => stmt match {
             case Statement.RefAssign(reference, value) =>
-              ExprTerm.Effective(
-                PureEffect.RefAssign[ExprTerm, ExprType](reference, value), acc
-              ).withSpan(stmt.span)
+              ExprTerm.Do(
+                ExprTerm.Apply(
+                  ExprTerm.Var("#refAssign"), List(reference, value)
+                ).withSpan(stmt.span),
+                body = acc
+              )
             case Statement.Let(name, value) =>
               ExprTerm.LetIn(name, value, acc).withSpan(stmt.span)
             case Statement.LetRec(name, value, _) =>
@@ -462,7 +465,7 @@ class Visitor extends CpParserBaseVisitor[
             case Statement.LetTupleDestruct(_, _) => ???
             case Statement.LetRecordDestruct(_, _) => ???
             case Statement.Expression(expr) =>
-              ExprTerm.Effective(PureEffect.Exec(expr), acc).withSpan(stmt.span)
+              ExprTerm.Do(expr.withSpan(stmt.span), acc)
           }
         }
       }

@@ -2,9 +2,9 @@ package cp.parser
 
 import org.antlr.v4.runtime.{BaseErrorListener, ParserRuleContext, RecognitionException, Recognizer}
 import cp.util.{SourcePosition, SourceSpan}
-import cp.error.Error
+import cp.error.SpannedError
 
-enum SyntaxError extends Exception with Error {
+enum SyntaxError extends Exception with SpannedError {
 
   override def message: String = "Syntax error"
 
