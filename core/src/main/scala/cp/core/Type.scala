@@ -22,6 +22,8 @@ enum Type {
   
   case Record(fields: Map[String, Type])
   
+  case Tuple(elements: List[Type])
+  
   case Fixpoint(name: String, body: Type)
   
   case Ref(ty: Type)
@@ -66,6 +68,10 @@ enum Type {
     
     case Record(fields) => {
       Record(fields.view.mapValues(_.subst(from, replacement)).toMap)
+    }
+
+    case Tuple(elements) => {
+      Tuple(elements.map(_.subst(from, replacement)))
     }
     
     case Ref(ty) => {
@@ -126,6 +132,12 @@ enum Type {
       case (Record(fields1), Record(fields2)) => {
         fields1.keySet == fields2.keySet && fields1.forall { 
           case (label, ty1) => ty1.unify(fields2(label))
+        }
+      }
+
+      case (Tuple(elements1), Tuple(elements2)) => {
+        elements1.length == elements2.length && elements1.zip(elements2).forall {
+          case (ty1, ty2) => ty1.unify(ty2)
         }
       }
       
@@ -206,6 +218,12 @@ enum Type {
           case (label, ty2) => fields1(label) <:< ty2
         }
       }
+
+      case (Tuple(elements1), Tuple(elements2)) => {
+        elements1.length == elements2.length && elements1.zip(elements2).forall {
+          case (ty1, ty2) => ty1 <:< ty2
+        }
+      }
       
       case (Ref(ty1), Ref(ty2)) => ty1.unify(ty2) // Ref types are invariant
 
@@ -275,6 +293,8 @@ enum Type {
     case Record(fields) => Record(fields.map { 
       case (label, fieldType) => label -> fieldType.normalize
     })
+
+    case Tuple(elements) => Tuple(elements.map(_.normalize))
     
     case Ref(ty) => Ref(ty.normalize)
 
@@ -318,6 +338,7 @@ enum Type {
     case Intersection(left, right) => left.isTopLike && right.isTopLike
     case Union(left, right) => left.isTopLike || right.isTopLike
     case Record(fields) => fields.values.forall(_.isTopLike)
+    case Tuple(elements) => elements.forall(_.isTopLike)
     case Forall(_, codomain, _) => codomain.isTopLike
     case Fixpoint(_, body) => body.isTopLike
     case _ => false
@@ -383,4 +404,9 @@ enum Type {
     
     case (left, right) => left != right
   }
+}
+
+object Type {
+  lazy val top: Type = Primitive(LiteralType.TopType)
+  lazy val bottom: Type = Primitive(LiteralType.BottomType)
 }

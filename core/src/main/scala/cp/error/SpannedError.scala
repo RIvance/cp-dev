@@ -51,6 +51,7 @@ enum CoreErrorKind(override val message: String) extends ErrorKind {
   case MatchNotExhaustive extends CoreErrorKind("Match not exhaustive")
   case NoLeastUpperBound extends CoreErrorKind("No least upper bound")
   case RecordMissingField extends CoreErrorKind("Missing field")
+  case MissingTypeAnnotation extends CoreErrorKind("Missing type annotation")
 
   def raise(info: => String): Nothing = throw CoreError(this, info)
   def raise(span: SourceSpan)(info: => String): Nothing = throw CoreError(this, info).withSpan(span)

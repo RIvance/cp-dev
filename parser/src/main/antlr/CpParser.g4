@@ -121,8 +121,8 @@ compExpr
     |   excludeExpr args+=spineArg*                         # compExprApp
     |   (Fun | Backslash | Lambda) termParams+=termParamGroup+ Arrow expr=typedExpr # compExprLambda
     |   SlashBackslash typeParams=typeParamList Dot expr=typedExpr # compExprTypeLambda
-    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign value=typedExpr In body=typedExpr  # compExprLetIn
-    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon ty=type Assign value=typedExpr In body=typedExpr # compExprLetRec
+    |   Let name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Assign value=typedExpr (Colon ty=type)? In body=typedExpr  # compExprLetIn
+    |   LetRec name=termNameDecl typeParams=typeParamList? params+=termParamGroup* Colon ty=type Assign value=typedExpr In body=typedExpr  # compExprLetRec
     |   Open expr=typedExpr In body=typedExpr # compExprOpenIn
     |   If condition=typedExpr Then thenBranch=typedExpr Else elseBranch=typedExpr # compExprIf
     |   Match typedExpr BraceOpen (caseClause Semicolon)* caseClause Semicolon BraceClose # compExprMatch

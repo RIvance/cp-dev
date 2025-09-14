@@ -22,6 +22,17 @@ case class SourceSpan(start: Int, end: Int) {
   }
 }
 
+object SourceSpan {
+
+  def unknown: SourceSpan = SourceSpan(-1, -1)
+  
+  def fromPositions(code: String, start: SourcePosition, end: SourcePosition): SourceSpan = {
+    val startPos = start.toCharPos(code)
+    val endPos = end.toCharPos(code)
+    SourceSpan(startPos, endPos)
+  }
+}
+
 trait OptionalSpanned[T] {
   def withSpan(span: SourceSpan): T
 }

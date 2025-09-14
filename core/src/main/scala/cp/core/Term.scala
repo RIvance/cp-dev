@@ -12,13 +12,18 @@ enum Term {
   
   case Apply(func: Term, arg: Term)
   
+  // Subtyping relationship A <: B implies a coercion function of type A -> B
+  case CoeApply(coe: Term, arg: Term)
+  
   case TypeApply(term: Term, tyArg: Type)
   
   case Lambda(param: String, paramType: Type, body: Term)
   
+  case Coercion(param: String, paramType: Type, body: Term)
+  
   case TypeLambda(param: String, body: Term)
   
-  case Fixpoint(param: String, paramType: Type, body: Term)
+  case Fixpoint(name: String, ty: Type, recursiveBody: Term)
   
   case Projection(record: Term, field: String)
   
@@ -27,6 +32,8 @@ enum Term {
   case Tuple(elements: List[Term])
   
   case Merge(left: Term, right: Term, bias: MergeBias = MergeBias.Neutral)
+  
+  case IfThenElse(condition: Term, thenBranch: Term, elseBranch: Term)
   
   // case Match(scrutinee: Term, clauses: List[Clause])
   

@@ -3,7 +3,10 @@ package cp.parser
 import cp.ast.CpParser.*
 import cp.ast.CpParserBaseVisitor
 import cp.core.*
+import cp.error.*
+import cp.error.CoreErrorKind.*
 import cp.syntax.*
+import cp.util.SourceSpan
 import org.antlr.v4.runtime.ParserRuleContext
 
 import scala.jdk.CollectionConverters.*
@@ -221,26 +224,86 @@ class Visitor extends CpParserBaseVisitor[
     val params = ctx.params.asScala.flatMap(_.visit).toList
     val value = ctx.value.visit
     val body = ctx.body.visit
+    Option(ctx.ty) match {
+      case Some(returnTypeCtx) =>
+        val returnType = returnTypeCtx.visit
+        val (typedValue, typedValueType) = letToTypedLambda(
+          typeParams, params, returnType, value,
+          s"Missing type annotation in function '$name'",
+          ctx.value.span
+        )
+        ExprTerm.LetIn(name, typedValue, Some(typedValueType), body).withSpan(ctx)
+      case None =>
+        val untypedValue = letToUntypedLambda(typeParams, params, value, ctx.value.span)
+        ExprTerm.LetIn(name, untypedValue, None, body).withSpan(ctx)
+    }
+  }
+  
+  private def letToUntypedLambda(
+    typeParams: List[String], 
+    params: List[(String, Option[ExprType])],
+    value: ExprTerm,
+    span: SourceSpan = SourceSpan.unknown
+  ): ExprTerm = {
     // Handle function with parameters
     val func = if (params.isEmpty) value else value.foldLambda(params)
     // Apply type parameters if any
     val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
-    ExprTerm.LetIn(name, typedFunc, body).withSpan(ctx)
+    typedFunc.withSpan(span)
+  }
+  
+  private def letToTypedLambda(
+    typeParams: List[String], 
+    params: List[(String, Option[ExprType])],
+    returnType: ExprType,
+    value: ExprTerm,
+    missingTypeAnnotationErrorMessage: String,
+    span: SourceSpan = SourceSpan.unknown
+  ): (ExprTerm, ExprType) = {
+    // Handle function with parameters
+    val func = if (params.isEmpty) value else value.foldLambda(params)
+    // Apply type parameters if any
+    val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
+    // Infer function type
+    val funcTypeWithoutTypeParam = params.foldRight(returnType) {
+      case ((_, Some(paramType)), acc) => ExprType.Arrow(paramType, acc)
+      case ((_, None), _) =>
+        // TODO: If any parameter type is missing, we cannot infer the full function type
+        //  So we use a placeholder type here. Type checking will catch this later.
+        // Now, we just raise an error.
+        MissingTypeAnnotation.raise(span)(missingTypeAnnotationErrorMessage)
+    }.withSpan(span)
+    val funcType = typeParams.foldRight(funcTypeWithoutTypeParam) {
+      (param, acc) => ExprType.Forall(param, acc)
+    }.withSpan(span)
+    (typedFunc.withSpan(span), funcType)
+  }
+
+  private def letRecToFixpoint(
+    name: String, 
+    typeParams: List[String], 
+    params: List[(String, Option[ExprType])], 
+    returnType: ExprType, 
+    value: ExprTerm, 
+    span: SourceSpan = SourceSpan.unknown
+  ): (ExprTerm, ExprType) = {
+    val (fixpointBody, fixpointType) = letToTypedLambda(
+      typeParams, params, returnType, value,
+      s"Missing type annotation in recursive function '$name'",
+      span
+    )
+    (ExprTerm.Fixpoint(name, fixpointType, fixpointBody).withSpan(span), fixpointType)
   }
 
   override def visitCompExprLetRec(ctx: CompExprLetRecContext): ExprTerm = {
+    // let rec value name[typeParams](params): returnType = value in body
     val name = ctx.name.visit
     val typeParams = Option(ctx.typeParams).map(_.visit).getOrElse(Nil)
     val params = ctx.params.asScala.flatMap(_.visit).toList
     val returnType = ctx.ty.visit
     val value = ctx.value.visit
-    val body = ctx.body.visit
-    // Create fixpoint for recursive function
-    val funcBody = value.foldLambda(params)
-    val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
-    // Apply type parameters if any
-    val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
-    ExprTerm.LetIn(name, typedFixpoint, body).withSpan(ctx)
+    val (fixpoint, fixpointType) = letRecToFixpoint(name, typeParams, params, returnType, value)
+    ExprTerm.LetIn(name, fixpoint, Some(fixpointType), ctx.body.visit).withSpan(ctx)
   }
 
   override def visitCompExprOpenIn(ctx: CompExprOpenInContext): ExprTerm = {
@@ -276,7 +339,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitCompExprFixpoint(ctx: CompExprFixpointContext): ExprTerm = {
-    ExprTerm.Fixpoint(ctx.name.visit, Some(ctx.ty.visit), ctx.expr.visit).withSpan(ctx)
+    ExprTerm.Fixpoint(ctx.name.visit, ctx.ty.visit, ctx.expr.visit).withSpan(ctx)
   }
 
   override def visitCompExprFold(ctx: CompExprFoldContext): ExprTerm = {
@@ -378,11 +441,19 @@ class Visitor extends CpParserBaseVisitor[
       val typeParams = Option(letCtx.typeParams).map(_.visit).getOrElse(Nil)
       val params = letCtx.params.asScala.flatMap(_.visit).toList
       val value = letCtx.value.visit
-      // Handle function with parameters
-      val func = if (params.isEmpty) value else value.foldLambda(params)
-      // Apply type parameters if any
-      val typedFunc = if (typeParams.isEmpty) func else func.foldTypeLambda(typeParams)
-      Statement.Let(letCtx.name.getText, typedFunc)(ctx.span)
+      Option(letCtx.ty) match {
+        case Some(returnTypeCtx) =>
+          val returnType = returnTypeCtx.visit
+          val (typedValue, typedValueType) = letToTypedLambda(
+            typeParams, params, returnType, value,
+            s"Missing type annotation in function '${letCtx.name.getText}'",
+            ctx.span
+          )
+          Statement.Let(letCtx.name.getText, typedValue, Some(typedValueType))(ctx.span)
+        case None =>
+          val untypedValue = letToUntypedLambda(typeParams, params, value, ctx.span)
+          Statement.Let(letCtx.name.getText, untypedValue, None)(ctx.span)
+      }
     }
 
     case letRecCtx: StmtLetRecContext => {
@@ -391,12 +462,8 @@ class Visitor extends CpParserBaseVisitor[
       val params = letRecCtx.params.asScala.flatMap(_.visit).toList
       val returnType = letRecCtx.ty.visit
       val value = letRecCtx.value.visit
-      // Create fixpoint for recursive function
-      val funcBody = value.foldLambda(params)
-      val fixpoint = ExprTerm.Fixpoint(name, Some(returnType), funcBody)
-      // Apply type parameters if any
-      val typedFixpoint = if (typeParams.isEmpty) fixpoint else fixpoint.foldTypeLambda(typeParams)
-      Statement.LetRec(name, typedFixpoint, returnType)(ctx.span)
+      val (fixpointTerm, fixpointType) = letRecToFixpoint(name, typeParams, params, returnType, value, ctx.span)
+      Statement.Let(name, fixpointTerm, Some(fixpointType))(ctx.span)
     }
 
     case letTupleCtx: StmtLetTupleContext => {
@@ -458,10 +525,8 @@ class Visitor extends CpParserBaseVisitor[
                 ).withSpan(stmt.span),
                 body = acc
               )
-            case Statement.Let(name, value) =>
-              ExprTerm.LetIn(name, value, acc).withSpan(stmt.span)
-            case Statement.LetRec(name, value, _) =>
-              ExprTerm.LetRecIn(name, value, acc).withSpan(stmt.span)
+            case Statement.Let(name, value, ty) =>
+              ExprTerm.LetIn(name, value, ty, acc).withSpan(stmt.span)
             case Statement.LetTupleDestruct(_, _) => ???
             case Statement.LetRecordDestruct(_, _) => ???
             case Statement.Expression(expr) =>

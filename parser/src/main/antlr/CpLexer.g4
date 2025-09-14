@@ -149,8 +149,13 @@ Let
     :   'let'
     ;
 
+Rec
+    :   'rec'
+    ;
+
 LetRec
     :   'letrec'
+    |   Let Rec
     ;
 
 Open

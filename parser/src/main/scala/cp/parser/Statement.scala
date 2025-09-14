@@ -13,16 +13,12 @@ enum Statement(val span: SourceSpan) {
   )(implicit span: SourceSpan) extends Statement(span)
   
   case Let(
-    name: String, value: ExprTerm
-  )(implicit span: SourceSpan) extends Statement(span)
-  
-  case LetRec(
-    name: String, value: ExprTerm, expectedType: ExprType
+    name: String, value: ExprTerm, ty: Option[ExprType]
   )(implicit span: SourceSpan) extends Statement(span)
   
   case LetTupleDestruct(
-    names: List[String], value: ExprTerm)(implicit span: SourceSpan
-  ) extends Statement(span)
+    names: List[String], value: ExprTerm
+  )(implicit span: SourceSpan) extends Statement(span)
   
   case LetRecordDestruct(
     fields: Map[String, String], value: ExprTerm
