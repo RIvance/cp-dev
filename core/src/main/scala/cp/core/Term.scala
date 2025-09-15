@@ -1,6 +1,5 @@
 package cp.core
 
-import cp.core.Term.EvalMode
 import cp.error.CoreError
 import cp.error.CoreErrorKind.*
 
@@ -52,7 +51,7 @@ enum Term {
   case Do(expr: Term, body: Term)
 
   // A reference to a memory/virtual address holding a value of given type.
-  //   It can only be created/utilized by native procedures.
+  //  It can only be created/utilized by native procedures.
   case RefAddr(refType: Type, address: Long)
   
   // A call to a pure native function/procedure with given arguments.
@@ -310,37 +309,223 @@ enum Term {
     
   }
 
-  def eval(mode: EvalMode = EvalMode.Normalize)(using env: Environment): Term = ???
+  /**
+   * Evaluate the term according to the given evaluation mode.
+   * @param mode
+   *  EvalMode.Normalize: only perform terminating reductions (e.g. beta-reduction, unfolding fixpoints once).
+   *    Do not evaluate expressions with side effects (e.g. native procedure calls).
+   *  EvalMode.Full: perform full reductions until no more reductions are possible.
+   *    Evaluate expressions with side effects (e.g. native procedure calls).
+   * @param env the environment to use for variable lookups
+   * @return the evaluated term
+   */
+  def eval(using env: Environment = Environment.empty)(
+    using mode: EvalMode = EvalMode.Normalize
+  ): Term = this match {
+    
+    case Var(name) => env.termVars.get(name) match {
+      case Some(term) => term.eval
+      case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
+    }
+    
+    case Typed(term, ty) => {
+      if !term.check(ty) then TypeNotMatch.raise {
+        s"Annotated type ${ty} does not match inferred type ${term.infer}"
+      } else term.eval
+    }
+    
+    case Primitive(_) => this
+    
+    case Apply(func, arg) => {
+      // In all modes, we first evaluate the function and argument.
+      val argEval: Term = arg.eval
+      val funcEval: Term = func.eval
+      // In normalization mode, 
+      //  when argument is a pure value term (e.g. primitives, pure lambdas, etc.),
+      //  we can perform beta-reduction.
+      // Otherwise, we keep the application form to avoid multiple evaluations of the argument.
+      // In full evaluation mode, we always perform beta-reduction.
+      //  This is safe because all side effects are contained in native procedure calls,
+      //  which is only evaluated once at the moment of argument evaluation.
+      //  So that even if the argument is not a pure value term,
+      //  it will not cause multiple side effects.
+      (funcEval, argEval, mode) match {
+        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => 
+          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+        case (Lambda(param, _, body), argValue, EvalMode.Full) => 
+          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+        case _ => Term.Apply(funcEval, argEval)
+      }
+    }
+    
+    case CoeApply(coe, arg) => {
+      // Similar to Apply.
+      val argEval: Term = arg.eval
+      val coeEval: Term = coe.eval
+      (coeEval, argEval, mode) match {
+        case (Coercion(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => 
+          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+        case (Coercion(param, _, body), argValue, EvalMode.Full) => 
+          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+        case _ => Term.CoeApply(coeEval, argEval)
+      }
+    }
+    
+    case TypeApply(term, tyArg) => {
+      val termEval: Term = term.eval
+      (termEval, mode) match {
+        // It is always safe to perform type-level beta-reduction.
+        case (TypeLambda(param, body), EvalMode.Normalize | EvalMode.Full) => 
+          env.withTypeVar(param, tyArg) { newEnv => body.eval(using newEnv) }
+        case _ => Term.TypeApply(termEval, tyArg)
+      }
+    }
+    
+    case Lambda(param, paramType, body) => {
+      env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
+        newEnv => Term.Lambda(param, paramType, body.eval(using newEnv))
+      }
+    }
+    
+    case Coercion(param, paramType, body) => {
+      env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
+        newEnv => Term.Coercion(param, paramType, body.eval(using newEnv))
+      }
+    }
+    
+    case TypeLambda(param, body) => {
+      env.withTypeVar(param, Type.Var(param)) { 
+        newEnv => Term.TypeLambda(param, body.eval(using newEnv))
+      }
+    }
+    
+    case Fixpoint(name, ty, recursiveBody) => {
+      // In normalization mode, we do not unfold the fixpoint.
+      // In full evaluation mode, we always unfold the fixpoint.
+      mode match {
+        case EvalMode.Normalize => {
+          // To avoid infinite unfolding of fixpoints, we assign a variable
+          //  representing the fixpoint itself in the environment.
+          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { 
+            newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
+          }
+        }
+        case EvalMode.Full => {
+          // In full evaluation mode, we always unfold the fixpoint.
+          // Therefore, we assign the fixpoint term itself in the environment.
+          env.withTermVar(name, this) { 
+            newEnv => recursiveBody.eval(using newEnv)
+          }
+        }
+      }
+    }
+    
+    case Projection(record, field) => {
+      val recordEval: Term = record.eval
+      recordEval match {
+        case Record(fields) => fields.get(field) match {
+          case Some(value) => value.eval
+          case None => NoSuchField.raise {
+            s"Field '$field' does not exist in record: $recordEval"
+          }
+        }
+        case _ => Term.Projection(recordEval, field)
+      }
+    }
+      
+    case Record(fields) => {
+      val evaluatedFields = fields.map { (name, term) => (name, term.eval) }
+      Term.Record(evaluatedFields)
+    }
+    
+    case Tuple(elements) => {
+      val evaluatedElements = elements.map(_.eval)
+      Term.Tuple(evaluatedElements)
+    }
+    
+    case Merge(_, _, _) => ???
+    
+    case IfThenElse(condition, thenBranch, elseBranch) => {
+      val conditionEval: Term = condition.eval
+      (conditionEval, mode) match {
+        case (Primitive(Literal.BoolValue(true)), EvalMode.Normalize | EvalMode.Full) => 
+          thenBranch.eval
+        case (Primitive(Literal.BoolValue(false)), EvalMode.Normalize | EvalMode.Full) => 
+          elseBranch.eval
+        case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
+      }
+    }
+    
+    case ArrayLiteral(elements) => {
+      val evaluatedElements = elements.map(_.eval)
+      Term.ArrayLiteral(evaluatedElements)
+    }
+    
+    case FoldFixpoint(_, _) => ???
+    
+    case UnfoldFixpoint(_, _) => ???
+    
+    case Do(expr, body) => {
+      // In normalization mode, we do not discard the value of expr after evaluation.
+      //  This is to prevent discarding side effects in expr.
+      // In full evaluation mode, we discard the value of expr after evaluation.
+      //  This is safe because all side effects are contained in native procedure calls,
+      //  which is only evaluated once at the moment of expr evaluation.
+      //  So that even if the value of expr is discarded, the side effects are preserved.
+      val exprEval: Term = expr.eval
+      mode match {
+        case EvalMode.Normalize => Term.Do(exprEval, body.eval)
+        case EvalMode.Full => body.eval
+      }
+    }
+    
+    case RefAddr(_, _) => this
+    
+    case NativeFunctionCall(function, args) => {
+      // The evaluation of native function calls are similar to Apply.
+      //  As native functions are only implemented to handle pure values,
+      //  we only perform beta-reduction when all arguments are fully evaluated to pure values.
+      val evaluatedArgs: List[Term] = args.map(_.eval)
+      if evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == function.arity then {
+        function.call(evaluatedArgs)
+      } else {
+        Term.NativeFunctionCall(function, evaluatedArgs)
+      }
+    }
+    
+    case NativeProcedureCall(procedure, args) => {
+      // The evaluation of native procedure calls are similar to Apply.
+      //  As native procedures may have side effects,
+      //  we only perform beta-reduction in full evaluation mode
+      //  when all arguments are fully evaluated to pure values.
+      val evaluatedArgs: List[Term] = args.map(_.eval)
+      if mode == EvalMode.Full && evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == procedure.arity then {
+        procedure.call(evaluatedArgs)
+      } else {
+        Term.NativeProcedureCall(procedure, evaluatedArgs)
+      }
+    }
+  }
   
-  def normalize(using env: Environment = Environment.empty): Term = eval(EvalMode.Normalize)
+  private def isValue(allowedParams: Set[String] = Set.empty): Boolean = this match {
+    case Var(name) => allowedParams.contains(name)
+    case Primitive(_) => true
+    case Lambda(param, _, body) => body.isValue(allowedParams + param)
+    case Coercion(param, _, body) => body.isValue(allowedParams + param)
+    case Fixpoint(name, _, body) => body.isValue(allowedParams + name)
+    case TypeLambda(_, body) => body.isValue(allowedParams)
+    case Typed(term, _) => term.isValue(allowedParams)
+    case TypeApply(term, _) => term.isValue(allowedParams)
+    case Record(fields) => fields.values.forall(_.isValue(allowedParams))
+    case Tuple(elements) => elements.forall(_.isValue(allowedParams))
+    case _ => false
+  }
+  
+  def isValue: Boolean = this.isValue(Set.empty)
 }
 
-object Term {
-
-  enum EvalMode {
-    case Normalize
-    case Partial(unfoldLevel: Int = 3)
-    case Full
-  }
-
-  case class EvalEnv(
-    baseEnv: Environment,
-    currentRecursionDepth: Int = 0,
-    currentRecursionFunction: Option[String] = None
-  ) {
-    def typeVars: Map[String, Type] = baseEnv.typeVars
-    def termVars: Map[String, Term] = baseEnv.termVars
-
-    def addTypeVar(name: String, ty: Type): EvalEnv =
-      copy(baseEnv = baseEnv.addTypeVar(name, ty))
-    def addTermVar(name: String, term: Term): EvalEnv =
-      copy(baseEnv = baseEnv.addTermVar(name, term))
-
-    def withTypeVar[T](name: String, ty: Type)(f: EvalEnv => T): T =
-      f(addTypeVar(name, ty))
-    def withTermVar[T](name: String, term: Term)(f: EvalEnv => T): T =
-      f(addTermVar(name, term))
-  }
+enum EvalMode {
+  case Normalize, Full
 }
 
 enum MergeBias {

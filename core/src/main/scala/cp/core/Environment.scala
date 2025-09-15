@@ -21,11 +21,11 @@ case class Environment(
   }
     
   def freshTypeName: String = {
-    Iterator.from(0).map(n => s"_T$n").find(!typeVars.contains(_)).get
+    Iterator.from(0).map(n => s"$$Type$$$n").find(!typeVars.contains(_)).get
   }
 
   def freshVarName: String = {
-    Iterator.from(0).map(n => s"_v$n").find(!typeVars.contains(_)).get
+    Iterator.from(0).map(n => s"$$value$$$n").find(!typeVars.contains(_)).get
   }
 
   def withFreshTypeVar[T](f: (Type.Var, Environment) => T): T = {
