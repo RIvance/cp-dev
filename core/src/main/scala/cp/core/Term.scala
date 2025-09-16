@@ -1,6 +1,5 @@
 package cp.core
 
-import cp.error.CoreError
 import cp.error.CoreErrorKind.*
 
 enum Term {
@@ -112,7 +111,7 @@ enum Term {
     
     case TypeLambda(param, body) => {
       env.withTypeVar(param, Type.Var(param)) { 
-        newEnv => Type.Forall(param, body.infer(using newEnv), None)
+        newEnv => Type.Forall(param, body.infer(using newEnv))
       }
     }
     
@@ -200,13 +199,15 @@ enum Term {
     }
     
     case TypeApply(term, tyArg) => term.infer match {
-      case Type.Forall(param, body, disjoint) =>
+      case Type.Forall(param, body, constraints) =>
         val instantiatedType = body.subst(param, tyArg)
         if !(instantiatedType <:< expectedType) then TypeNotMatch.raise {
           s"Instantiated type ${instantiatedType} does not match expected type ${expectedType}"
-        } else if disjoint.exists(!tyArg.disjointWith(_)) then TypeNotMatch.raise {
-          s"Type argument ${tyArg} is not disjoint with constraints ${disjoint.get}"
-        } else true
+        } else constraints.forall { constraint =>
+          if !constraint.check(tyArg) then ConstraintNotSatisfied.raise {
+            s"Type argument $tyArg does not satisfy constraint $constraint"
+          } else true
+        }
       case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
     }
     

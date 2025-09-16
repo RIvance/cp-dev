@@ -14,7 +14,10 @@ enum Type {
   
   case Trait(domain: Type, codomain: Type)
   
-  case Forall(paramName: String, codomain: Type, disjoint: Option[Type] = None)
+  case Forall(
+    paramName: String, codomain: Type, 
+    constraints: Set[Constraint[Type]] = Set.empty,
+  )
   
   case Intersection(lhs: Type, rhs: Type)
   
@@ -52,9 +55,12 @@ enum Type {
       }
     }
 
-    case Forall(param, codomain, disjoint) => {
+    case Forall(param, codomain, constraints) => {
       if param == from then this else {
-        Forall(param, codomain.subst(from, replacement), disjoint.map(_.subst(from, replacement)))
+        val newConstraints = constraints.map {
+          constraint => constraint.map(_.subst(from, replacement))
+        }
+        Forall(param, codomain.subst(from, replacement), newConstraints)
       }
     }
     
@@ -108,14 +114,12 @@ enum Type {
       
       case (Primitive(ty1), Primitive(ty2)) => ty1 == ty2
       
-      case (Forall(param1, codomain1, disjoint1), Forall(param2, codomain2, disjoint2)) => {
+      case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         env.withFreshTypeVar { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar).unify(codomain2.subst(param2, freshVar)) && {
-            (disjoint1, disjoint2) match {
-              case (Some(d1), Some(d2)) => d1 unify d2
-              case (None, None) => true
-              case _ => false
+            constraints1.size == constraints2.size && constraints1.forall { c1 =>
+              constraints2.exists { c2 => c1.map(_.subst(param1, freshVar)) unify c2.map(_.subst(param2, freshVar)) }
             }
           }
         }
@@ -192,14 +196,34 @@ enum Type {
         env.typeVars.get(name).exists(normThis.unify) || normThis.unify(normThat)
       }
       
-      case (Forall(param1, codomain1, disjoint1), Forall(param2, codomain2, disjoint2)) => {
+      case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         env.withFreshTypeVar { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) <:< codomain2.subst(param2, freshVar) && {
-            (disjoint1, disjoint2) match {
-              case (Some(d1), Some(d2)) => d2 <:< d1 // contravariant
-              case (None, None) => true
-              case _ => false
+            // Since parameter are contravariant, the constraints on `this` should be weaker than those on `that`
+            // Upperbounds: for all i and j, Ui1 <: Uj2
+            constraints1.forall {
+              case Constraint.UpperBoundConstraint(_, upper1) => constraints2.exists {
+                case Constraint.UpperBoundConstraint(_, upper2) => upper1 <:< upper2
+                case _ => false
+              }
+              case _ => true
+            }
+            // Lowerbounds: for all i and j, Li2 <: Li1
+            && constraints2.forall {
+              case Constraint.LowerBoundConstraint(_, lower2) => constraints1.exists {
+                case Constraint.LowerBoundConstraint(_, lower1) => lower2 <:< lower1
+                case _ => false
+              }
+              case _ => true
+            }
+            // Disjointness: for all Dj2 there exists Di1, Di1 <: Dj2
+            && constraints2.forall {
+              case Constraint.DisjointConstraint(_, disjoint2) => constraints1.exists {
+                case Constraint.DisjointConstraint(_, disjoint1) => disjoint1 <:< disjoint2
+                case _ => false
+              }
+              case _ => true
             }
           }
         }
@@ -253,13 +277,13 @@ enum Type {
 
     case Trait(domain, codomain) => Trait(domain.normalize, codomain.normalize)
 
-    case Forall(param, codomain, disjoint) => {
+    case Forall(param, codomain, constraints) => {
       env.withFreshTypeVar { (freshVar, newEnv) =>
         given Environment = newEnv
         Type.Forall(
           paramName = param,
           codomain.subst(param, freshVar).normalize,
-          disjoint.map(_.subst(param, freshVar).normalize)
+          constraints.compact.rename(param)
         )
       }
     }
@@ -302,10 +326,10 @@ enum Type {
       val normalizedFunc: Type = func.normalize
       val normalizedArg: Type = arg.normalize
       normalizedFunc match {
-        case Forall(param, codomain, disjoint) => {
-          disjoint.foreach { disjoint =>
-            if !(normalizedArg <:< disjoint) then TypeNotDisjoint.raise {
-              s"Type argument $normalizedArg does not satisfy the disjointness constraint $disjoint"
+        case Forall(param, codomain, constraints) => {
+          constraints.foreach { constraint =>
+            if !constraint.check(normalizedArg) then ConstraintNotSatisfied.raise {
+              s"Type argument ${normalizedArg} does not satisfy constraint ${constraint} in type application ${this}"
             }
           }
           // Beta reduction: (∀x . B) T → B[T/x]
@@ -385,16 +409,19 @@ enum Type {
       other.disjointWith(l2) && other.disjointWith(r2)
     }
 
-    case (Forall (param1, codomain1, disjoint1), Forall(param2, codomain2, disjoint2)) => {
-      val disjoint: Type = (disjoint1, disjoint2) match {
-        case (Some(d1), Some(d2)) => Intersection(d1, d2)
-        case (Some(d1), _) => d1
-        case (_, Some(d2)) => d2
-        case _ => Primitive(LiteralType.BottomType)
-      }
-      env.withFreshTypeBinding(disjoint) { (freshVar, newEnv) =>
-        given Environment = newEnv
-        codomain1.subst(param1, freshVar) disjointWith codomain2.subst(param2, freshVar)
+    case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
+      if constraints1.forall {
+        constraint1 => constraints2.exists {
+          constraint2 => constraint1.disjointWith(constraint2)
+        }
+      } then true else {
+        // TODO: We need to check whether it's okay to use top type here
+        // No disjointness constraints, we need to check the bodies
+        val disjoint = Primitive(LiteralType.TopType) // A type that is guaranteed to be disjoint with any other type
+        env.withFreshTypeBinding(disjoint) { (freshVar, newEnv) =>
+          given Environment = newEnv
+          codomain1.subst(param1, freshVar) disjointWith codomain2.subst(param2, freshVar)
+        }
       }
     }
     

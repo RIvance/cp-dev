@@ -329,10 +329,12 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
         val (fnAppTerm, fnAppType) = tyArgs.foldLeft((fnTerm, fnType)) {
           case ((accFnTerm: Term, accFnType: Type), tyArg) => {
             accFnType match {
-              case Type.Forall(paramName, body, disjoint) => {
+              case Type.Forall(paramName, body, constraints) => {
                 val tyArgType = tyArg.synthesize
-                if disjoint.exists(!tyArgType.disjointWith(_)) then TypeNotMatch.raise {
-                  s"Type argument $tyArgType is not disjoint with constraints: ${disjoint.mkString(", ")}"
+                constraints.forall { constraint =>
+                  if !constraint.check(tyArgType) then ConstraintNotSatisfied.raise {
+                    s"Type argument $tyArgType does not satisfy constraint $constraint"
+                  } else true
                 }
                 val substitutedBody = body.subst(paramName, tyArgType)
                 (Term.TypeApply(accFnTerm, tyArgType), substitutedBody)

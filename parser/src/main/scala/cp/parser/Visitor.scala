@@ -103,6 +103,8 @@ class Visitor extends CpParserBaseVisitor[
       case ctx: ExpressionRecordUpdateContext => visitExpressionRecordUpdate(ctx)
     }
   }
+  
+  def visitExpression(ctx: ExpressionContext): ExprTerm = ctx.visit
 
   override def visitExpressionComplex(ctx: ExpressionComplexContext): ExprTerm = {
     ctx.compExpr.visit.withSpan(ctx)
@@ -686,6 +688,8 @@ class Visitor extends CpParserBaseVisitor[
       case ctx: TypeSpineContext => visitTypeSpine(ctx)
     }
   }
+  
+  def visitType(ctx: TypeContext): ExprType = ctx.visit
 
   extension (ctx: TypeWithSortContext) {
     def visit: ExprType = visitTypeWithSort(ctx)

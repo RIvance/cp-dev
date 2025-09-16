@@ -38,6 +38,8 @@ bin/
 
 ### VS Code ###
 .vscode/
+.metals/
+.bloop
 
 ### Mac OS ###
 .DS_Store

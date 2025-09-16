@@ -1,5 +1,6 @@
 package cp.syntax
 
+import cp.core.{Constraint, Environment, Module, Term, Type}
 import cp.util.{OptionalSpanned, SourceSpan}
 
 enum Definition extends OptionalSpanned[Definition] {
@@ -7,13 +8,13 @@ enum Definition extends OptionalSpanned[Definition] {
   case TermDef(
     name: String, 
     term: ExprTerm, 
-    constraints: Set[DisjointConstraint] = Set.empty,
+    constraints: Set[Constraint[ExprType]] = Set.empty,
   )
   
   case TypeDef(
     name: String, 
     typeDef: ExprType, 
-    constraints: Set[DisjointConstraint] = Set.empty,
+    constraints: Set[Constraint[ExprType]] = Set.empty,
   )
   
   case SubmodDef(name: String, module: RawModule)
@@ -24,6 +25,6 @@ enum Definition extends OptionalSpanned[Definition] {
     case Definition.Spanned(_, _) => this
     case _ => Definition.Spanned(span, this)
   }
+  
+  def synthesis(using env: Environment): Term | Type | Module = ???
 }
-
-case class DisjointConstraint(left: String, right: ExprType)
