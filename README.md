@@ -148,7 +148,7 @@ CP now supports multiple definition styles for improved readability and coding p
 max (a: Int) (b: Int) = { if a > b then a else b } : Int;
 
 // Compact single-parameter-list style
-max(a b: Int): Int = if a > b then { a } else { b };
+max (a b: Int): Int = if a > b then { a } else { b };
 
 // Familiar def syntax with comma-separated parameters
 def max(a: Int, b: Int): Int = if a > b then a else b;
@@ -172,10 +172,35 @@ def areaOfCircle (d: Float) =
   (pi * r * r);
 ```
 
-### Language Features
+#### Disjoint Qualification
+
+The disjoint qualification can be expressed in either complete or concise form:
+
+**For values/expressions:**
+
+```scala
+/\T where T * Int . \(x: T) -> x ,, 42
+/\(T * Int) . \(x: T) -> x ,, 42
+```
+
+**For functions/types:**
+```scala
+def mixin[T](base: Trait<T>) where T * { amazing: Bool } = 
+  trait [self: T] inherits base => { amazing = true };
+
+def mixin[T * { amazing: Bool }](base: Trait<T>) =
+  trait [self: T] inherits base => { amazing = true };
+
+mixin (T * { amazing: Bool }) (base: Trait<T>) =
+  trait [self: T] inherits base => { amazing = true };
+```
+
+The concise form `(T * Constraint)` is semantically equivalent to the complete form `T where T * Constraint` - both specify that type `T` must be disjoint from the given constraint. 
+
+### New Features
 
 #### Module System with Hierarchical Organization
-CP now features a robust module system supporting multi-level namespaces and structured project organization:
+CP now features a novel module system supporting multi-level namespaces and structured project organization:
 
 ```
 ├── __main__.cp          # Main entry point
@@ -210,7 +235,21 @@ import mod1::{helloMod1, submod::helloSubmod};
 import mod2::helloMod2;
 ```
 
+#### Upperbound and Lowerbound Support
+
+CP now supports bounded polymorphism through **upperbound** (`<:`) and **lowerbound** (`:>`) constraints, working alongside existing disjoint (`*`) constraints.
+
+```scala
+def mixin[T](base: Trait<T>) where 
+  T * { amazing: Bool },      // Disjoint constraint (existing feature)
+  T <: { isAmazing: Bool },   // Upperbound constraint (new feature)
+= trait [self: T] inherits base => { 
+  amazing = self.isAmazing    // `self` guaranteed to have `isAmazing`
+};
+```
+
 #### Tuple Types and Destructuring
+
 First-class tuple support with type-safe destructuring:
 
 ```rust
@@ -252,10 +291,10 @@ def myPrintln(str: String): String = native[Unit] {
   // JavaScript-specific implementation
   case "JavaScript" => {#
     console.log(str)  // Direct JavaScript code execution
-  #}
+  #};
   // Future platforms can be added here
-  // case "WASM" => {# ... #}
-  // case "LLVM" => {# ... #}
+  // case "WASM" => {# ... #};
+  // case "LLVM" => {# ... #};
 }
 ```
 
