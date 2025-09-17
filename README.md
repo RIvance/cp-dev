@@ -142,6 +142,10 @@ Common issues and solutions:
 
 ## What's New
 
+### Modern REPL
+
+<img src="assets/repl.png" alt="REPL" style="zoom:70%;" />
+
 ### Syntax Enhancements
 
 #### More Flexible Function Definitions

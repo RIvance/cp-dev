@@ -98,5 +98,9 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     val (term2, ty2) = synthExpr("snd[Int, String](pair[Int, String](42, \"Hello\"))")
     ty2.normalize should be(StringType.toType)
     term2.fullEval should be(StringValue("Hello").toTerm)
+    
+    val (term3, ty3) = synthExpr("let x = pair[Int, String](114514, \"good!\") in fst[Int, String] x")
+    ty3.normalize should be(IntType.toType)
+    term3.fullEval should be(IntValue(114514).toTerm)
   }
 }

@@ -357,7 +357,8 @@ enum Term {
     case Apply(func, arg) => {
       // In all modes, we first evaluate the function and argument.
       val argEval: Term = arg.eval
-      val funcEval: Term = func.eval
+      // We always evaluate the function in normalization mode.
+      val funcEval: Term = func.eval(using env)(using EvalMode.Normalize)
       // In normalization mode, 
       //  when argument is a pure value term (e.g. primitives, pure lambdas, etc.),
       //  we can perform beta-reduction.
@@ -412,14 +413,16 @@ enum Term {
     }
     
     case Lambda(param, paramType, body) => {
-      env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
-        implicit newEnv => Term.Lambda(param, paramType, body.eval(using newEnv))
+      val newParamType = paramType.normalize
+      env.withTermVar(param, Term.Typed(Term.Var(param), newParamType)) { 
+        implicit newEnv => Term.Lambda(param, newParamType, body.eval(using newEnv))
       }
     }
     
     case Coercion(param, paramType, body) => {
-      env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
-        implicit newEnv => Term.Coercion(param, paramType, body.eval(using newEnv))
+      val newParamType = paramType.normalize
+      env.withTermVar(param, Term.Typed(Term.Var(param), newParamType)) { 
+        implicit newEnv => Term.Coercion(param, newParamType, body.eval(using newEnv))
       }
     }
     

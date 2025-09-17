@@ -62,12 +62,14 @@ private class ReplCore {
           case Definition.TermDef(name, termExpr, constraints) => {
             val (term: Term, ty: Type) = termExpr.synthesize
             val evaluatedTerm = term.eval
-            println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            println()
             environment = environment.addTermVar(name, evaluatedTerm)
           }
           case Definition.TypeDef(name, typeExpr, constraints) => {
             val ty: Type = typeExpr.synthesize
-            println(s"  type $name = ${ty.normalize}\n")
+            // println(s"  type $name = ${ty.normalize}\n")
+            println()
             environment = environment.addTypeVar(name, ty)
           }
 
@@ -79,7 +81,8 @@ private class ReplCore {
           case Statement.Let(name, valueExpr, tyExprOpt) => {
             val (term: Term, ty: Type) = valueExpr.synthesize
             val evaluatedTerm = term.eval
-            println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            println()
             environment = environment.addTermVar(name, evaluatedTerm)
           }
           case Statement.LetTupleDestruct(names, valueExpr) => ???

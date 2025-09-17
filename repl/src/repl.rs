@@ -19,6 +19,9 @@ impl CpRepl {
             "flat", "prefix", "postfix", "self", "operator", "binary", "unary",
             "left-assoc", "right-assoc", "tighter-than", "looser-than", "same-as",
             "if", "then", "else", "match", "case", "forall", "exists", "eval",
+            "trait", "in", "module", "import", "as", "where", "main", "fun", "impl",
+            "interface", "extends", "new", "Ref", "ref", "implements", "inherits",
+            "fix", "rec", "letrec", "with", "fold", "unfold", "override",
         ].into_iter().map(String::from).collect();
 
         let completer = Box::new(DefaultCompleter::new_with_wordlen(keywords.clone(), 2));

@@ -466,7 +466,7 @@ enum Type {
     case Forall(param, codomain, constraints) => {
       val constraintsStr = if constraints.isEmpty then ""
       else constraints.map(_.toString).mkString(" | ") + " "
-      s"forall $param . $constraintsStr-> ${codomain.toString}"
+      s"∀$param $constraintsStr. ${codomain.toString}"
     }
     
     case Intersection(lhs, rhs) => s"${lhs.toAtomString} & ${rhs.toAtomString}"
