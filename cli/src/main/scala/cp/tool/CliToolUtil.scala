@@ -2,12 +2,11 @@ package cp.tool
 
 import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
 import cp.cli.ReadEvalPrintLoop
-import cp.concrete.{ErrorListener, Visitor}
-import cp.concrete.syntax.{Definition, Evaluation}
-import cp.core.syntax.{Literal, Module}
-import cp.core.term
-import cp.core.term.Term
-import cp.error.{CoreError, Error, PanicError}
+import cp.parser.{ErrorListener, Visitor}
+import cp.core.{Literal, Module}
+import cp.core.Term
+import cp.syntax.RawModule
+import cp.error.{CoreError, SpannedError, PanicError}
 import cp.ast.{CpLexer, CpParser}
 
 def catchError[R](source: String, path: Option[String] = None, doPrint: Boolean = true)(
@@ -15,7 +14,7 @@ def catchError[R](source: String, path: Option[String] = None, doPrint: Boolean 
 ): R = {
   val errorListener = ErrorListener(source)
   try action(errorListener) catch {
-    case error: Error => {
+    case error: SpannedError => {
       error.infoSpans.headOption match {
         case Some(span, info) => {
           val spanLength = span.end - span.start + 1
@@ -31,29 +30,11 @@ def catchError[R](source: String, path: Option[String] = None, doPrint: Boolean 
   }
 }
 
-def compileModule(source: String, path: Option[String] = None, doEvaluation: Boolean = true): Module = {
+def loadModule(source: String, path: Option[String] = None): Module = {
   catchError(source, path) { listener =>
     val parser = parseSource(source, listener)
-    
-    val entities = Visitor().visitProgram(parser.program())
-    val definitions = entities.collect { case defn: Definition => defn }
-    val evaluations = entities.collect { case eval: Evaluation => eval }
-    
-    val module = Module.from(definitions.map(_.emit))
-    if doEvaluation then evaluations.foreach { evaluation =>
-      val evalResult: Term | Unit = try module.evaluate(evaluation.expr.emit).term catch {
-        case err: PanicError => println(s"Panic: ${err.message}")
-        case err: CoreError => throw err.spanned(evaluation.span)
-        case err: Throwable => throw err
-      }
-      evalResult match {
-        case term.Primitive(Literal.StringValue(value)) => println(value)
-        case term: Term => println(term.evalString(module.env))
-        case _ => { /* Do nothing */ }
-      }
-    }
-
-    module
+    val rawModule: RawModule = Visitor().visitModule(parser.module())
+    rawModule.synthesize
   }
 }
 

@@ -1,104 +1,114 @@
 package cp.tool
 
 import cp.cli.ReadEvalPrintLoop
-import cp.concrete.{ErrorListener, SyntaxError, Visitor}
-import cp.concrete.syntax.{Definition, Evaluation, Statement}
-import cp.core.context.{Environment, Typed}
-import cp.core.domain.Value
-import cp.core.elaborate.Resolve
-import cp.core.elaborate.Resolve.resolve
-import cp.core.elaborate.Synthesis.synth
-import cp.core.syntax.{Expr, Var}
-import cp.core.syntax.Module.EvalResult
-import cp.error.{CoreErrorKind, Error}
+import cp.core.{Environment, EvalMode, Term, Type}
+import cp.error.SpannedError
+import cp.parser.{ErrorListener, Statement, SyntaxError, Visitor}
 import cp.prelude.Prelude
+import cp.syntax.{Definition, ExprTerm, ExprType}
+import cp.util.SourceSpan
+
+import scala.annotation.tailrec
 
 private class ReplCore {
-  val visitor: Visitor = Visitor()
-  implicit var environment: Environment.Typed[Value] = Prelude.environment
-  implicit var resolveContext: Resolve.Context = Resolve.Context(Prelude.symbols)
 
-  def evaluate(expr: Expr): EvalResult = {
-    val (term, ty) = expr.resolve(resolveContext)._1.synth(environment).unpack
-    EvalResult(term.forceEval(environment).reflect(environment), ty.reflect(environment))
+  case class EvalResult(value: Term, ty: Type) {
+    override def toString: String = s"$value : $ty"
   }
+
+  private val visitor: Visitor = Visitor()
+  implicit var environment: Environment = Prelude.environment
 
   def iterate(source: String): Unit = {
 
-    if source.trim == "env" then {
-      environment.locals.foreach { case (local, Typed(value, ty)) =>
-        println(s"  $local: ${ty.reflect(environment)} = ${value.reflect(environment)}")
-      }
-      println()
-      return
-    }
-
     val listener = ErrorListener(source)
+    
     try {
+      
       val parser = parseSource(source, listener)
-      val entities = visitor.visitProgram(parser.program())
-      val definitions = entities.collect { case defn: Definition => defn }.map(_.emit)
-      val evaluations = entities.collect { case eval: Evaluation => eval }
-
-      catchError(source, path = None, doPrint = false) { _ =>
-        val (newContext, newEnv) = definitions.foldLeft((resolveContext, environment)) {
-          case ((resolvingContext, env), definition) => {
-            val (resolved, newCtx) = definition.resolve(resolvingContext)
-            val definitionSynth = resolved.synth(env)
-            (newCtx, env.add(definitionSynth))
-          }
-        }
-
-        resolveContext = newContext
-        environment = newEnv
-
-        evaluations.foreach { evaluation => println("  " + evaluate(evaluation.expr.emit)) }
-        println()
-      }
-
-    } catch {
-      // Not seems to be a definition, evaluate it as an expression
-      case _: SyntaxError.ParsingError => {
-        try {
-          val listener = ErrorListener(source)
-          val parser = parseSource(source, listener)
-          val expr = visitor.visitStatement(parser.statement())
-
-          given Resolve.Context = resolveContext
-          given Environment.Typed[Value] = environment
-
-          expr match {
-            case Statement.Let(name, expectedTypeExpr, valueExpr) => {
-              val (term, ty) = valueExpr.emit.resolve._1.synth.unpack
-              expectedTypeExpr match {
-                case Some(expectedTypeExpr) => {
-                  val expectedType = expectedTypeExpr.emit.resolve._1.synth.term.normalize
-                  if !(expectedType.eval <:< ty) then {
-                    throw CoreErrorKind.TypeNotMatch.raise(valueExpr.span) {
-                      s"Expected type ${expectedType}, but got a ${ty.reflect(environment)}"
-                    }
-                  }
+      val input: Definition | Statement | ExprTerm | ExprType = try {
+        visitor.visitDefinition(parser.definition)
+      } catch {
+        case _: Throwable => {
+          // Not seems to be a definition, try statement
+          try {
+            visitor.visitStatement(parser.stmt)
+          } catch {
+            // Not seems to be a statement, try type term
+            case _: Throwable => try {
+              visitor.visitType(parser.`type`)
+            } catch {
+              case _: Throwable => {
+                // Not seems to be a type term, try expression
+                try visitor.visitExpression(parser.expression) catch {
+                  case _: Throwable => throw SyntaxError.InvalidInput(
+                    "Input is not a valid definition, statement, type, or expression.",
+                    span = SourceSpan(0, source.length - 1)
+                  )
                 }
-                case None => ()
               }
-              val variable: Var.Local = Var.Local(name)
-              environment = environment.add(Var.Local(name), term.eval, ty)
-              resolveContext += variable
-              println(s"  $name = ${term.normalize(environment)} : ${ty.reflect(environment)}\n")
             }
-            case Statement.Expression(expr) => println(s"  ${evaluate(expr.emit)}\n")
           }
-        } catch {
-          case error: Error => printError(source, error)
-          case error: Throwable => throw error
         }
       }
-      case error: Error => printError(source, error)
-      case error: Throwable => println(s"Error: ${error.getMessage}")
+      
+      @tailrec
+      def iterateInput(input: Definition | Statement | ExprTerm | ExprType): Unit = input match {
+        case defn: Definition => {
+          defn match {
+            case Definition.TermDef(name, termExpr, constraints) => {
+              val (term: Term, ty: Type) = termExpr.synthesize
+              val evaluatedTerm = term.eval
+              println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+              environment = environment.addTermVar(name, evaluatedTerm)
+            }
+            case Definition.TypeDef(name, typeExpr, constraints) => {
+              val ty: Type = typeExpr.synthesize
+              println(s"  type $name = ${ty.normalize}\n")
+              environment = environment.addTypeVar(name, ty)
+            }
+              
+            case Definition.SubmodDef(_, _) => ???
+            case Definition.Spanned(_, defn) => iterateInput(defn)
+          }
+        }
+        case stmt: Statement => stmt match {
+          case Statement.Expression(expr) => iterateInput(expr.withSpan(stmt.span))
+          case Statement.Let(name, valueExpr, tyExprOpt) => {
+            val (term: Term, ty: Type) = valueExpr.synthesize
+            val evaluatedTerm = term.eval
+            println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            environment = environment.addTermVar(name, evaluatedTerm)
+          }
+          case Statement.LetTupleDestruct(names, valueExpr) => ???
+          case Statement.LetRecordDestruct(fields, valueExpr) => ???
+          case Statement.RefAssign(referenceExpr, valueExpr) => ???
+        }
+        case expr: ExprTerm => {
+          val (term: Term, ty: Type) = expr.synthesize
+          println(s"  ${term.eval(using environment)(using EvalMode.Full)} : ${ty.normalize}\n")
+        }
+        case tyExpr: ExprType => try {
+          val ty = tyExpr.synthesize
+          println(s"  type $ty\n")
+        } catch {
+          case _: Throwable => {
+            // Failed to parse as type, try as expression
+            val (term, ty) = visitor.visitExpression(parser.expression).synthesize
+            println(s"  ${term.eval(using environment)(using EvalMode.Full)} : ${ty.normalize}\n")
+          }
+        }
+      }
+
+      catchError(source, path = None, doPrint = false) { _ => iterateInput(input) }
+      
+    } catch {
+      case error: SpannedError => printError(source, error)
+      case error => error.printStackTrace()
     }
   }
 
-  private def printError(source: String, error: Error): Unit = {
+  private def printError(source: String, error: SpannedError): Unit = {
     error.infoSpans.headOption match {
       case Some((span, info)) => {
         val spanLength = span.end - span.start + 1

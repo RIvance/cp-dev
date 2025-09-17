@@ -1,6 +1,6 @@
 package cp.parser
 
-import org.antlr.v4.runtime.{BaseErrorListener, ParserRuleContext, RecognitionException, Recognizer}
+import org.antlr.v4.runtime.{ANTLRErrorStrategy, BaseErrorListener, DefaultErrorStrategy, ParserRuleContext, RecognitionException, Recognizer}
 import cp.util.{SourcePosition, SourceSpan}
 import cp.error.SpannedError
 
@@ -14,6 +14,7 @@ enum SyntaxError extends Exception with SpannedError {
   override lazy val infoSpans: Map[SourceSpan, String] = Map(this.span -> info)
   override def toString: String = s"SyntaxError: $info at ${this.span}"
 
+  case InvalidInput(override val info: String, override val span: SourceSpan)
   case InvalidOperator(override val info: String, override val span: SourceSpan)
   case InvalidSymbol(override val info: String, override val span: SourceSpan)
   case InvalidDeclaration(override val info: String, override val span: SourceSpan)

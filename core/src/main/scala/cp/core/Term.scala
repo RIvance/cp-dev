@@ -554,33 +554,56 @@ enum Term {
   }
   
   override def toString: String = this match {
+    
     case Var(name) => name
+    
     case Typed(term, ty) => s"($term : $ty)"
+    
     case Primitive(value) => value.toString
+    
     case Apply(func, arg) => s"${func.toAtomString} ${arg.toAtomString}"
+    
     case CoeApply(coe, arg) => s"${coe.toAtomString} ${arg.toAtomString}"
+    
     case TypeApply(term, tyArg) => s"${term.toAtomString} @${tyArg}"
+    
     case Lambda(param, paramType, body) => s"λ($param: $paramType). ${body.toAtomString}"
+    
     case Coercion(param, paramType, body) => s"trait ($param: $paramType). $body"
+    
     case TypeLambda(param, body) => s"Λ$param. $body"
+    
     case Fixpoint(name, ty, recursiveBody) => s"fix $name: $ty = $recursiveBody"
+    
     case Projection(record, field) => s"${record.toAtomString}.$field"
+    
     case Record(fields) => s"{${fields.map { (name, term) => s"$name = $term" }.mkString("; ")}}"
+    
     case Tuple(elements) => s"(${elements.map(_.toString).mkString(", ")})"
+    
     case Merge(left, right, bias) => bias match {
       case MergeBias.Neutral => s"$left ,, $right"
       case MergeBias.Left => s"$left ,> $right"
       case MergeBias.Right => s"$left <, $right"
     }
-    case IfThenElse(condition, thenBranch, elseBranch) => 
+    
+    case IfThenElse(condition, thenBranch, elseBranch) => {
       s"if $condition then $thenBranch else $elseBranch"
+    }
+      
     // case Match(scrutinee, clauses) => 
     //   s"match $scrutinee {\n${clauses.map(clause => s"  $clause").mkString("\n")}\n}"
+      
     case ArrayLiteral(elements) => s"[${elements.map(_.toString).mkString(", ")}]"
+    
     case FoldFixpoint(fixpointType, body) => s"fold[$fixpointType] $body"
+    
     case UnfoldFixpoint(fixpointType, term) => s"unfold[$fixpointType] $term"
+    
     case Do(expr, body) => s"do { $expr; $body }"
+    
     case RefAddr(refType, address) => s"ref[$refType]@$address"
+    
     case NativeFunctionCall(function, args) => function.kind match {
       case NativeCallable.Kind.Default => 
         s"$function(${args.map(_.toString).mkString(", ")})"
@@ -591,8 +614,10 @@ enum Term {
       case NativeCallable.Kind.Function(name) => 
         s"$name(${args.map(_.toString).mkString(", ")})"
     }
-    case NativeProcedureCall(procedure, args) => 
+    
+    case NativeProcedureCall(procedure, args) => {
       s"$procedure(${args.map(_.toString).mkString(", ")})"
+    }
   }
 }
 
