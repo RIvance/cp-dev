@@ -7,10 +7,31 @@ case class RawModule(
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
 ) {
-  def synthesize(using env: Environment = Environment.empty): Module = ???
+  def synthesize(using env: Environment = Environment.empty): Module = {
+    
+    // We should synthesize types first, so that terms can refer to them.
+    val synthesizedTypes = types.foldLeft(env) { case (envAcc, (name, exprType)) =>
+      val ty = exprType.synthesize(using envAcc)(using Set.empty).normalize
+      envAcc.addTypeVar(name, ty)
+    }
+    
+    val synthesizedTerms = terms.foldLeft(synthesizedTypes) { case (envAcc, (name, exprTerm)) =>
+      val (term, _) = exprTerm.synthesize(using envAcc)(using Set.empty)
+      envAcc.addTermVar(name, term)
+    }
+    
+    Module(
+      terms = synthesizedTerms.termVars,
+      types = synthesizedTypes.typeVars,
+      submodules = submodules.map { case (name, rawMod) => 
+        name -> rawMod.synthesize(using synthesizedTerms)
+      }
+    )
+  }
 }
 
 object RawModule {
+  
   def empty: RawModule = RawModule(Map.empty, Map.empty, Map.empty)
   
   def apply(definitions: Seq[Definition]): RawModule = {

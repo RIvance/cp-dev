@@ -1,7 +1,7 @@
 package cp.test
 
 import cp.ast.{CpLexer, CpParser}
-import cp.core.{Environment, Term, Type, EvalMode}
+import cp.core.{Environment, Term, Type, EvalMode, Module}
 import cp.error.SpannedError
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
@@ -35,6 +35,22 @@ trait TestExtension {
   ): (Term, Type) = catchError(code.strip) { _ => 
     val (term, ty) = parseExprTerm(code).synthesize(using env)
     (term.eval, ty.normalize)
+  }
+  
+  protected def synthModule(code: String)(
+    using env: Environment = Prelude.environment
+  ): Module = catchError(code.strip) { listener =>
+    val stripedCode = code.strip()
+    val lexer = CpLexer(CharStreams.fromString(stripedCode))
+    lexer.removeErrorListeners()
+    lexer.addErrorListener(listener)
+
+    val parser = CpParser(CommonTokenStream(lexer))
+    parser.removeErrorListeners()
+    parser.addErrorListener(listener)
+
+    val rawModule = Visitor().visitModule(parser.module())
+    rawModule.synthesize(using env)
   }
 
   protected def printSourceWithHighlight(source: String, span: SourceSpan, info: String): Unit = {

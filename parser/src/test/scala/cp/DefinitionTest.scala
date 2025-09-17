@@ -1,0 +1,99 @@
+package cp
+
+import cp.core.{Environment, Literal, LiteralType, Term, Type}
+import cp.core.LiteralType.*
+import cp.core.Literal.*
+import cp.prelude.Prelude
+import cp.test.TestExtension
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should
+
+class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
+  
+  given prelude: Environment = Prelude.environment
+  
+  test("synth term definition id") {
+    val code = """
+      def id = Λ A . fun (x: A) -> x;
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("id[Int](42)")
+    ty should be (IntType.toType)
+    term should be (IntValue(42).toTerm)
+  }
+
+  test("synth term definition id 2") {
+    val code =
+      """
+        // Another style of definition
+        def id[A](x: A) = x;
+      """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("id[Int](42)")
+    ty should be(IntType.toType)
+    term should be(IntValue(42).toTerm)
+  }
+  
+  test("synth simple type alias") {
+    val code ="""
+      type Integer = Int;
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("(1 + 2 : Integer)")
+    ty should be(IntType.toType)
+    term should be(IntValue(3).toTerm)
+  }
+  
+  test("synth simple record type") {
+    val code = """
+      type Point = { x: Int; y: Int };
+      
+      def origin: Point = { x = 0; y = 0 };
+      
+      def move(p: Point, dx: Int, dy: Int): Point = 
+        { x = p.x + dx; y = p.y + dy };
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("move(origin, 3, 4)")
+    ty should be(Type.Record(Map("x" -> IntType.toType, "y" -> IntType.toType)))
+    term should be(
+      Term.Record(Map(
+        "x" -> IntValue(3).toTerm,
+        "y" -> IntValue(4).toTerm,
+      ))
+    )
+  }
+  
+  test("synth simple type with type parameter") {
+    val code = """
+      type Box[A] = { value: A };
+      
+      def box[A](x: A): Box[A] = { value = x };
+      
+      def unbox[A](b: Box[A]): A = b.value;
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("unbox[Int](box[Int](42))")
+    ty should be(IntType.toType)
+    term should be(IntValue(42).toTerm)
+  }
+  
+  test("synth type definition pair") {
+    val code = """
+      type Pair[A, B] = ∀C . ((A -> B -> C) -> C);
+      
+      def pair[A, B](x: A, y: B): Pair[A, B] = 
+        Λ C . fun (f: A -> B -> C) -> f(x, y);
+        
+      def fst[A, B](p: Pair[A, B]): A = 
+        p[Int -> A](fun (x: A, y: B) -> x);
+        
+      def snd[A, B](p: Pair[A, B]): B = 
+        p[Int -> B](fun (x: A, y: B) -> y);
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term, ty) = synthExpr("fst[Int, String](pair[Int, String](42, \"Hello\"))")
+    ty should be(IntType.toType)
+    term should be(IntValue(42).toTerm)
+  }
+}

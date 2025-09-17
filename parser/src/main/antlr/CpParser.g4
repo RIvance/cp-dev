@@ -5,7 +5,25 @@ options {
 }
 
 program
-    :   (imports+=importing)* definitions+=definition* main EOF
+    :   (imports+=importing Semicolon)* (definitions+=definition Semicolon)* main EOF
+    ;
+
+// For REPL
+
+singletonDef
+    :   definition Semicolon? EOF
+    ;
+
+singletonExpr
+    :   expression EOF
+    ;
+
+singletonType
+    :   type EOF
+    ;
+
+singletonStmt
+    :   stmt Semicolon? EOF
     ;
 
 main
@@ -15,11 +33,11 @@ main
     ;
 
 module
-    :   definitions+=definition* EOF
+    :   (definitions+=definition Semicolon)* EOF
     ;
 
 importing
-    :   Import moduleTree Semicolon
+    :   Import moduleTree
     ;
 
 moduleTree
@@ -39,19 +57,19 @@ definition
 interfaceDef
     :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
             (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
-            (Extends extends=typeWithSort)? body=recordType Semicolon
+            (Extends extends=typeWithSort)? body=recordType
     ;
 
 typeDef
     :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
             (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
-            Assign body=type Semicolon
+            Assign body=type
     ;
 
 termDef
     :   Def? name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)?
             (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
-            Assign body=typedExpr Semicolon
+            Assign body=typedExpr
     ;
 
 submoduleDef
@@ -135,7 +153,7 @@ compExpr
     ;
 
 spineArg
-    :   expr=excludeExpr     # spineArgTerm
+    :   expr=excludeExpr   # spineArgTerm
     |   ty=typeArg         # spineArgType
     ;
 
@@ -229,7 +247,7 @@ array
     ;
 
 record
-    :   BraceOpen (entities+=recordEntity Semicolon)* entites+=recordEntity? BraceClose
+    :   BraceOpen (entities+=recordEntity Semicolon)* entities+=recordEntity? BraceClose
     ;
 
 recordEntity

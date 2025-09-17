@@ -117,7 +117,17 @@ enum Term {
     
     case Fixpoint(_, ty, _) => ty
     
-    case Projection(_, _) => ???
+    case Projection(record, field) => record.infer match {
+      case Type.Record(fieldTypes) => fieldTypes.get(field) match {
+        case Some(fieldType) => fieldType
+        case None => NoSuchField.raise {
+          s"Field '${field}' does not exist in record type ${record.infer}"
+        }
+      }
+      case other => TypeNotMatch.raise {
+        s"Expected record type, but got: ${other}"
+      }
+    }
     
     case Record(fields) => {
       Type.Record(fields.map { (name, term) => (name, term.infer) })
@@ -277,11 +287,13 @@ enum Term {
       
     case Record(fields) => expectedType match {
       case Type.Record(expectedFieldTypes) =>
-        if fields.keySet != expectedFieldTypes.keySet then TypeNotMatch.raise {
-          s"Record fields ${fields.keySet} do not match expected fields ${expectedFieldTypes.keySet}"
-        } else fields.forall { (name, term) =>
-          val fieldType = expectedFieldTypes(name)
-          term.check(fieldType)
+        expectedFieldTypes.forall { (name, expectedFieldType) =>
+          fields.get(name) match {
+            case Some(fieldTerm) => fieldTerm.check(expectedFieldType)
+            case None => NoSuchField.raise {
+              s"Field '${name}' does not exist in record: ${this}"
+            }
+          }
         }
       case other => TypeNotMatch.raise(s"Expected record type, but got: ${other}")
     }

@@ -11,6 +11,8 @@ class Module(
     val exportedTerms = terms.filter { case (name, _) => exported.contains(name) }
     ExportedModule(this, exportedTypes.keySet ++ exportedTerms.keySet)
   }
+  
+  def toEnv: Environment = Environment(types, terms)
 }
 
 case class ExportedModule(

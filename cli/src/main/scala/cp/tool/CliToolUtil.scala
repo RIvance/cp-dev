@@ -1,13 +1,12 @@
 package cp.tool
 
-import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
-import cp.cli.ReadEvalPrintLoop
-import cp.parser.{ErrorListener, Visitor}
-import cp.core.{Literal, Module}
-import cp.core.Term
-import cp.syntax.RawModule
-import cp.error.{CoreError, SpannedError, PanicError}
 import cp.ast.{CpLexer, CpParser}
+import cp.cli.ReadEvalPrintLoop
+import cp.core.Module
+import cp.error.SpannedError
+import cp.parser.{ErrorListener, Visitor}
+import cp.syntax.RawModule
+import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
 
 def catchError[R](source: String, path: Option[String] = None, doPrint: Boolean = true)(
   action: ErrorListener => R

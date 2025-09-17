@@ -59,7 +59,7 @@ class Visitor extends CpParserBaseVisitor[
     }
     case ctx: TypeDefinitionContext => {
       val name = ctx.`def`.name.getText
-      val typeParams = ctx.`def`.params.visit
+      val typeParams = Option(ctx.`def`.params).map(_.visit).getOrElse(Nil)
       val ty: ExprType = ctx.`def`.body.visit
       // Wrap type in forall quantifiers if there are type parameters
       val fullType: ExprType = typeParams.foldRight(ty) { 

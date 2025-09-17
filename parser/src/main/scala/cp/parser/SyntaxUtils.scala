@@ -1,8 +1,8 @@
 package cp.parser
 
-import org.antlr.v4.runtime.{ANTLRErrorStrategy, BaseErrorListener, DefaultErrorStrategy, ParserRuleContext, RecognitionException, Recognizer}
-import cp.util.{SourcePosition, SourceSpan}
 import cp.error.SpannedError
+import cp.util.{SourcePosition, SourceSpan}
+import org.antlr.v4.runtime.{BaseErrorListener, ParserRuleContext, RecognitionException, Recognizer}
 
 enum SyntaxError extends Exception with SpannedError {
 

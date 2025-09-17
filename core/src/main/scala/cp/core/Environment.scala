@@ -47,11 +47,11 @@ case class Environment(
 }
 
 object Environment {
-  
+
   def empty: Environment = Environment()
-  
+
   def builder: Builder = Builder()
-  
+
   class Builder {
     private var env: Environment = Environment.empty
 
@@ -66,7 +66,7 @@ object Environment {
     }
 
     def build(): Environment = env
-    
+
     def buildWith(f: Builder => Unit): Environment = {
       f(this)
       this.build()

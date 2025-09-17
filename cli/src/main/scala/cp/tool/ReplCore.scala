@@ -23,25 +23,29 @@ private class ReplCore {
 
     val listener = ErrorListener(source)
     
+    // The ANTLR parser should be re-created for each new input to reset its state.
+    //  See: https://github.com/antlr/antlr4/issues/4843
+    def parser = parseSource(source, listener)
+    
     try {
       
-      val parser = parseSource(source, listener)
       val input: Definition | Statement | ExprTerm | ExprType = try {
-        visitor.visitDefinition(parser.definition)
+        visitor.visitDefinition(parser.singletonDef.definition)
       } catch {
         case _: Throwable => {
           // Not seems to be a definition, try statement
           try {
-            visitor.visitStatement(parser.stmt)
+            visitor.visitStatement(parser.singletonStmt.stmt)
           } catch {
             // Not seems to be a statement, try type term
             case _: Throwable => try {
-              visitor.visitType(parser.`type`)
+              visitor.visitType(parser.singletonType.`type`)
             } catch {
               case _: Throwable => {
                 // Not seems to be a type term, try expression
-                try visitor.visitExpression(parser.expression) catch {
-                  case _: Throwable => throw SyntaxError.InvalidInput(
+                try visitor.visitExpression(parser.singletonExpr.expression) catch {
+                  case e: SyntaxError => throw e
+                  case e: Throwable => throw SyntaxError.InvalidInput(
                     "Input is not a valid definition, statement, type, or expression.",
                     span = SourceSpan(0, source.length - 1)
                   )
@@ -54,23 +58,21 @@ private class ReplCore {
       
       @tailrec
       def iterateInput(input: Definition | Statement | ExprTerm | ExprType): Unit = input match {
-        case defn: Definition => {
-          defn match {
-            case Definition.TermDef(name, termExpr, constraints) => {
-              val (term: Term, ty: Type) = termExpr.synthesize
-              val evaluatedTerm = term.eval
-              println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
-              environment = environment.addTermVar(name, evaluatedTerm)
-            }
-            case Definition.TypeDef(name, typeExpr, constraints) => {
-              val ty: Type = typeExpr.synthesize
-              println(s"  type $name = ${ty.normalize}\n")
-              environment = environment.addTypeVar(name, ty)
-            }
-              
-            case Definition.SubmodDef(_, _) => ???
-            case Definition.Spanned(_, defn) => iterateInput(defn)
+        case defn: Definition => defn match {
+          case Definition.TermDef(name, termExpr, constraints) => {
+            val (term: Term, ty: Type) = termExpr.synthesize
+            val evaluatedTerm = term.eval
+            println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
+            environment = environment.addTermVar(name, evaluatedTerm)
           }
+          case Definition.TypeDef(name, typeExpr, constraints) => {
+            val ty: Type = typeExpr.synthesize
+            println(s"  type $name = ${ty.normalize}\n")
+            environment = environment.addTypeVar(name, ty)
+          }
+
+          case Definition.SubmodDef(_, _) => ???
+          case Definition.Spanned(_, defn) => iterateInput(defn)
         }
         case stmt: Statement => stmt match {
           case Statement.Expression(expr) => iterateInput(expr.withSpan(stmt.span))
@@ -94,7 +96,7 @@ private class ReplCore {
         } catch {
           case _: Throwable => {
             // Failed to parse as type, try as expression
-            val (term, ty) = visitor.visitExpression(parser.expression).synthesize
+            val (term, ty) = visitor.visitExpression(parser.singletonExpr.expression).synthesize
             println(s"  ${term.eval(using environment)(using EvalMode.Full)} : ${ty.normalize}\n")
           }
         }
