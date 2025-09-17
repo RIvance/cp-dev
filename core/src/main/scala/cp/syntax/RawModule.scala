@@ -6,8 +6,8 @@ case class RawModule(
   terms: Map[String, ExprTerm],
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
-) extends Synthesis[Module] {
-  override def synthesize(using env: Environment = Environment.empty): Module = ???
+) {
+  def synthesize(using env: Environment = Environment.empty): Module = ???
 }
 
 object RawModule {

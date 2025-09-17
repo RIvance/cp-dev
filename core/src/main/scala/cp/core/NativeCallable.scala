@@ -7,6 +7,14 @@ trait NativeCallable {
   def call(args: Seq[Term])(using env: Environment): Term
 }
 
+object NativeCallable {
+  enum Kind {
+    case Default
+    case Operator(symbol: String)
+    case Function(name: String)
+  }
+}
+
 private sealed abstract class NativeCallableBase (
   override val returnType: Type,
   override val paramTypes: Seq[Type],
@@ -31,7 +39,15 @@ class NativeFunction(
   returnType: Type,
   paramTypes: Seq[Type],
   implementation: Seq[Term] => Term,
-) extends NativeCallableBase(returnType, paramTypes, implementation)
+  val kind: NativeCallable.Kind = NativeCallable.Kind.Default,
+) extends NativeCallableBase(returnType, paramTypes, implementation) {
+  def toTerm: Term = Term.NativeFunctionCall(this, Seq.empty[Term])
+  override def toString: String = kind match {
+    case NativeCallable.Kind.Operator(symbol) => symbol
+    case NativeCallable.Kind.Function(name) => name
+    case _ => s"native@${System.identityHashCode(this)}"
+  }
+}
 
 class NativeProcedure(
   returnType: Type,

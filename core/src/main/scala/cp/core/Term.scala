@@ -60,11 +60,11 @@ enum Term {
   //  `PureNativeCall(add, [1])` represents a function of type `Int -> Int`.
   // Only when the number of args equals the arity,
   //  the call can be fully evaluated to a Primitive term.
-  case NativeFunctionCall(function: NativeFunction, args: List[Term])
+  case NativeFunctionCall(function: NativeFunction, args: Seq[Term])
   
   // A native procedure is only evaluated in FULL eval mode.
   //  Similar to native function calls, it can be partially applied.
-  case NativeProcedureCall(procedure: NativeProcedure, args: List[Term])
+  case NativeProcedureCall(procedure: NativeProcedure, args: Seq[Term])
 
   def infer(using env: Environment): Type = this match {
     
@@ -170,6 +170,9 @@ enum Term {
   def check(expectedType: Type)(using env: Environment): Boolean = this match {
 
     case Var(name) => env.termVars.get(name) match {
+      case Some(Typed(_, ty)) => if !(ty <:< expectedType) then TypeNotMatch.raise {
+        s"Variable '$name' has type ${ty}, which does not match expected type ${expectedType}"
+      } else true
       case Some(term) => term.check(expectedType)
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
@@ -180,7 +183,7 @@ enum Term {
       } else term.check(termType)
     }
     
-    case Primitive(value) => Type.Primitive(value.ty) == expectedType
+    case Primitive(value) => Type.Primitive(value.ty) unify expectedType
     
     case Apply(func, arg) => func.infer match {
       case Type.Arrow(paramType, returnType) =>
@@ -204,7 +207,7 @@ enum Term {
         if !(instantiatedType <:< expectedType) then TypeNotMatch.raise {
           s"Instantiated type ${instantiatedType} does not match expected type ${expectedType}"
         } else constraints.forall { constraint =>
-          if !constraint.check(tyArg) then ConstraintNotSatisfied.raise {
+          if !constraint.verify(tyArg) then ConstraintNotSatisfied.raise {
             s"Type argument $tyArg does not satisfy constraint $constraint"
           } else true
         }
@@ -325,6 +328,8 @@ enum Term {
   ): Term = this match {
     
     case Var(name) => env.termVars.get(name) match {
+      case Some(Typed(Var(_), _)) => this // Prevent infinite loop for self-referential variables
+      case Some(Var(_)) => this // Prevent infinite loop for self-referential variables
       case Some(term) => term.eval
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
@@ -332,7 +337,7 @@ enum Term {
     case Typed(term, ty) => {
       if !term.check(ty) then TypeNotMatch.raise {
         s"Annotated type ${ty} does not match inferred type ${term.infer}"
-      } else term.eval
+      } else term.eval // TODO: do we need to keep the type annotation after evaluation?
     }
     
     case Primitive(_) => this
@@ -351,10 +356,22 @@ enum Term {
       //  So that even if the argument is not a pure value term,
       //  it will not cause multiple side effects.
       (funcEval, argEval, mode) match {
-        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => 
+        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue =>
           env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
-        case (Lambda(param, _, body), argValue, EvalMode.Full) => 
+        case (Lambda(param, _, body), argValue, EvalMode.Full) =>
           env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+        case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity =>
+          // For partially applied native function calls, we can perform type application
+          //  to instantiate the polymorphic native function.
+          val evaluatedArgs: Seq[Term] = (args :+ argValue).map(_.eval)
+          if args.length + 1 == function.arity && evaluatedArgs.forall(_.isValue) then {
+            // If this application makes the native function fully applied,
+            //  we can evaluate it to a primitive value.
+            function.call(evaluatedArgs)
+          } else {
+            // Otherwise, we just return a new partially applied native function call.
+            Term.NativeFunctionCall(function, evaluatedArgs)
+          }
         case _ => Term.Apply(funcEval, argEval)
       }
     }
@@ -486,7 +503,7 @@ enum Term {
       // The evaluation of native function calls are similar to Apply.
       //  As native functions are only implemented to handle pure values,
       //  we only perform beta-reduction when all arguments are fully evaluated to pure values.
-      val evaluatedArgs: List[Term] = args.map(_.eval)
+      val evaluatedArgs: Seq[Term] = args.map(_.eval)
       if evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == function.arity then {
         function.call(evaluatedArgs)
       } else {
@@ -499,7 +516,7 @@ enum Term {
       //  As native procedures may have side effects,
       //  we only perform beta-reduction in full evaluation mode
       //  when all arguments are fully evaluated to pure values.
-      val evaluatedArgs: List[Term] = args.map(_.eval)
+      val evaluatedArgs: Seq[Term] = args.map(_.eval)
       if mode == EvalMode.Full && evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == procedure.arity then {
         procedure.call(evaluatedArgs)
       } else {
@@ -523,6 +540,60 @@ enum Term {
   }
   
   def isValue: Boolean = this.isValue(Set.empty)
+
+  // Add parentheses where necessary to ensure correct parsing.
+  def toAtomString: String = this match {
+    case _: Lambda => s"($this)"
+    case _: TypeLambda => s"($this)"
+    case _: Fixpoint => s"($this)"
+    case _: IfThenElse => s"($this)"
+    case _: Apply => s"($this)"
+    case _: CoeApply => s"($this)"
+    case _: TypeApply => s"($this)"
+    case _ => this.toString
+  }
+  
+  override def toString: String = this match {
+    case Var(name) => name
+    case Typed(term, ty) => s"($term : $ty)"
+    case Primitive(value) => value.toString
+    case Apply(func, arg) => s"${func.toAtomString} ${arg.toAtomString}"
+    case CoeApply(coe, arg) => s"${coe.toAtomString} ${arg.toAtomString}"
+    case TypeApply(term, tyArg) => s"${term.toAtomString} @${tyArg}"
+    case Lambda(param, paramType, body) => s"λ($param: $paramType). ${body.toAtomString}"
+    case Coercion(param, paramType, body) => s"trait ($param: $paramType). $body"
+    case TypeLambda(param, body) => s"Λ$param. $body"
+    case Fixpoint(name, ty, recursiveBody) => s"fix $name: $ty = $recursiveBody"
+    case Projection(record, field) => s"${record.toAtomString}.$field"
+    case Record(fields) => s"{${fields.map { (name, term) => s"$name = $term" }.mkString("; ")}}"
+    case Tuple(elements) => s"(${elements.map(_.toString).mkString(", ")})"
+    case Merge(left, right, bias) => bias match {
+      case MergeBias.Neutral => s"$left ,, $right"
+      case MergeBias.Left => s"$left ,> $right"
+      case MergeBias.Right => s"$left <, $right"
+    }
+    case IfThenElse(condition, thenBranch, elseBranch) => 
+      s"if $condition then $thenBranch else $elseBranch"
+    // case Match(scrutinee, clauses) => 
+    //   s"match $scrutinee {\n${clauses.map(clause => s"  $clause").mkString("\n")}\n}"
+    case ArrayLiteral(elements) => s"[${elements.map(_.toString).mkString(", ")}]"
+    case FoldFixpoint(fixpointType, body) => s"fold[$fixpointType] $body"
+    case UnfoldFixpoint(fixpointType, term) => s"unfold[$fixpointType] $term"
+    case Do(expr, body) => s"do { $expr; $body }"
+    case RefAddr(refType, address) => s"ref[$refType]@$address"
+    case NativeFunctionCall(function, args) => function.kind match {
+      case NativeCallable.Kind.Default => 
+        s"$function(${args.map(_.toString).mkString(", ")})"
+      case NativeCallable.Kind.Operator(symbol) => 
+        if args.length == 2 then s"(${args.head.toAtomString} $symbol ${args(1).toAtomString})"
+        else if args.length == 1 then s"($symbol${args.head.toAtomString})"
+        else s"$function(${args.map(_.toString).mkString(", ")})"
+      case NativeCallable.Kind.Function(name) => 
+        s"$name(${args.map(_.toString).mkString(", ")})"
+    }
+    case NativeProcedureCall(procedure, args) => 
+      s"$procedure(${args.map(_.toString).mkString(", ")})"
+  }
 }
 
 enum EvalMode {

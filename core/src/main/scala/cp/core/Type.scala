@@ -124,6 +124,10 @@ enum Type {
           }
         }
       }
+
+      case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
+        domain1.unify(domain2) && codomain1.unify(codomain2)
+      }
       
       case (Intersection(l1, r1), Intersection(l2, r2)) => {
         (l1.unify(l2) && r1.unify(r2)) || (l1.unify(r2) && r1.unify(l2))
@@ -181,7 +185,7 @@ enum Type {
     val normThis = this.normalize
     val normThat = that.normalize
 
-    if normThis == normThat then return true
+    if normThis unify normThat then return true
 
     (normThis, normThat) match {
       
@@ -194,6 +198,10 @@ enum Type {
       
       case (_, Var(name)) => {
         env.typeVars.get(name).exists(normThis.unify) || normThis.unify(normThat)
+      }
+
+      case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
+        domain2 <:< domain1 && codomain1 <:< codomain2
       }
       
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
@@ -283,7 +291,7 @@ enum Type {
         Type.Forall(
           paramName = param,
           codomain.subst(param, freshVar).normalize,
-          constraints.compact.rename(param)
+          constraints.compact.map(_.rename(param))
         )
       }
     }
@@ -328,7 +336,7 @@ enum Type {
       normalizedFunc match {
         case Forall(param, codomain, constraints) => {
           constraints.foreach { constraint =>
-            if !constraint.check(normalizedArg) then ConstraintNotSatisfied.raise {
+            if !constraint.verify(normalizedArg) then ConstraintNotSatisfied.raise {
               s"Type argument ${normalizedArg} does not satisfy constraint ${constraint} in type application ${this}"
             }
           }
@@ -430,6 +438,58 @@ enum Type {
     case (Type.Primitive(LiteralType.BottomType), _) => false
     
     case (left, right) => left != right
+  }
+  
+  // Add parentheses where necessary to ensure correct parsing.
+  def toAtomString: String = this match {
+    case Forall(_, _, _) => s"(${toString})"
+    case Arrow(_, _) => s"(${toString})"
+    case Trait(_, _) => s"(${toString})"
+    case Apply(_, _) => s"(${toString})"
+    case Intersection(_, _) => s"(${toString})"
+    case Union(_, _) => s"(${toString})"
+    case Fixpoint(_, _) => s"(${toString})"
+    case Diff(_, _) => s"(${toString})"
+    case _ => toString
+  }
+
+  override def toString: String = this match {
+    
+    case Var(name) => name
+    
+    case Primitive(ty) => ty.toString
+    
+    case Arrow(domain, codomain) => s"${domain.toAtomString} -> ${codomain.toString}"
+    
+    case Trait(domain, codomain) => s"${domain.toAtomString} ~> ${codomain.toString}"
+    
+    case Forall(param, codomain, constraints) => {
+      val constraintsStr = if constraints.isEmpty then ""
+      else constraints.map(_.toString).mkString(" | ") + " "
+      s"forall $param . $constraintsStr-> ${codomain.toString}"
+    }
+    
+    case Intersection(lhs, rhs) => s"${lhs.toAtomString} & ${rhs.toAtomString}"
+    
+    case Union(lhs, rhs) => s"${lhs.toAtomString} | ${rhs.toAtomString}"
+    
+    case Record(fields) => {
+      val fieldsStr = fields.map { case (label, ty) => s"$label: $ty" }.mkString("; ")
+      s"{ $fieldsStr }"
+    }
+    
+    case Tuple(elements) => {
+      val elementsStr = elements.map(_.toString).mkString(", ")
+      s"($elementsStr)"
+    }
+    
+    case Fixpoint(name, body) => s"μ $name . ${body.toAtomString}"
+    
+    case Ref(ty) => s"&${ty.toAtomString}"
+    
+    case Apply(func, arg) => s"${func.toAtomString} ${arg.toAtomString}"
+    
+    case Diff(lhs, rhs) => s"${lhs.toAtomString} \\ ${rhs.toAtomString}"
   }
 }
 

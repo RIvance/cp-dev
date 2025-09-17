@@ -37,14 +37,25 @@ enum Constraint[T <: Type | ExprType] {
     case Constraint.UpperBoundConstraint(_, upperBound) => upperBound
     case Constraint.LowerBoundConstraint(_, lowerBound) => lowerBound
   }
+  
+  def rename(paramName: String): Constraint[T] = this match {
+    case Constraint.DisjointConstraint(_, disjoint) =>
+      Constraint.DisjointConstraint(paramName, disjoint)
+    case Constraint.UpperBoundConstraint(_, upperBound) =>
+      Constraint.UpperBoundConstraint(paramName, upperBound)
+    case Constraint.LowerBoundConstraint(_, lowerBound) =>
+      Constraint.LowerBoundConstraint(paramName, lowerBound)
+  }
 }
 
 extension (constraint: Constraint[ExprType]) {
-  def synthesis(using env: Environment): Constraint[Type] = constraint.map(_.synthesize)
+  def synthesize(using env: Environment): Constraint[Type] = {
+    constraint.map(_.synthesize(using env)(using Set.empty))
+  }
 }
 
 extension (constraint: Constraint[Type]) {
-  def check(ty: Type)(using env: Environment): Boolean = constraint match {
+  def verify(ty: Type)(using env: Environment): Boolean = constraint match {
     case Constraint.DisjointConstraint(_, disjoint) => ty.disjointWith(disjoint)
     case Constraint.UpperBoundConstraint(_, upperBound) => ty <:< upperBound
     case Constraint.LowerBoundConstraint(_, lowerBound) => lowerBound <:< ty
@@ -161,16 +172,5 @@ extension (constraints: Set[Constraint[Type]]) {
       lowerBound.map(Constraint.LowerBoundConstraint("$T", _)),
       disjoint.map(Constraint.DisjointConstraint("$T", _)),
     ).flatten
-  }
-  
-  def rename(paramName: String): Set[Constraint[Type]] = {
-    constraints.map {
-      case Constraint.DisjointConstraint(_, disjoint) =>
-        Constraint.DisjointConstraint(paramName, disjoint)
-      case Constraint.UpperBoundConstraint(_, upperBound) =>
-        Constraint.UpperBoundConstraint(paramName, upperBound)
-      case Constraint.LowerBoundConstraint(_, lowerBound) =>
-        Constraint.LowerBoundConstraint(paramName, lowerBound)
-    }
   }
 }

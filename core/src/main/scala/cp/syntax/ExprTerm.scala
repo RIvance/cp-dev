@@ -5,7 +5,7 @@ import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, SourceSpan}
 
-enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
+enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case Primitive(value: Literal)
 
@@ -79,337 +79,339 @@ enum ExprTerm extends Synthesis[(Term, Type)] with OptionalSpanned[ExprTerm] {
     case _ => ExprTerm.Span(this, span)
   }
 
-  override def synthesize(using env: Environment): (Term, Type) = synthesize(None)(using env)
+  def synthesize(using env: Environment)(
+    using constraints: Set[Constraint[ExprType]] = Set.empty
+  ): (Term, Type) = synthesize(None)(using env)
 
-  def synthesize(expectedType: Option[Type])(using env: Environment): (Term, Type) = {
-    this match {
-      case ExprTerm.Primitive(value) => {
-        val ty = value match {
-          case Literal.IntValue(_) => LiteralType.IntType
-          case Literal.FloatValue(_) => LiteralType.FloatType
-          case Literal.BoolValue(_) => LiteralType.BoolType
-          case Literal.RuneValue(_) => LiteralType.RuneType
-          case Literal.StringValue(_) => LiteralType.StringType
-          case Literal.UnitValue => LiteralType.UnitType
+  def synthesize(expectedType: Option[Type])(using env: Environment)(
+    using constraints: Set[Constraint[ExprType]]
+  ): (Term, Type) = this match {
+    case ExprTerm.Primitive(value) => {
+      val ty = value match {
+        case Literal.IntValue(_) => LiteralType.IntType
+        case Literal.FloatValue(_) => LiteralType.FloatType
+        case Literal.BoolValue(_) => LiteralType.BoolType
+        case Literal.RuneValue(_) => LiteralType.RuneType
+        case Literal.StringValue(_) => LiteralType.StringType
+        case Literal.UnitValue => LiteralType.UnitType
+      }
+      (Term.Primitive(value), Type.Primitive(ty))
+    }
+
+    case ExprTerm.Var(name) => {
+      env.termVars.get(name) match {
+        case Some(term) => (term, term.infer)
+        case None => UnresolvedReference.raise(s"Undefined term: $name")
+      }
+    }
+
+    case ExprTerm.Typed(expr, expectedTypeExpr) => {
+      val (term, ty) = expr.synthesize
+      val expectedType = expectedTypeExpr.synthesize
+      if !(ty <:< expectedType) then {
+        TypeNotMatch.raise {
+          s"Expected type: $expectedType, found: $ty"
         }
-        (Term.Primitive(value), Type.Primitive(ty))
-      }
+      } else (term, ty)
+    }
 
-      case ExprTerm.Var(name) => {
-        env.termVars.get(name) match {
-          case Some(term) => (term, term.infer)
-          case None => UnresolvedReference.raise(s"Undefined term: $name")
-        }
-      }
-
-      case ExprTerm.Typed(expr, expectedTypeExpr) => {
-        val (term, ty) = expr.synthesize
-        val expectedType = expectedTypeExpr.synthesize
-        if !(ty <:< expectedType) then {
-          TypeNotMatch.raise {
-            s"Expected type: $expectedType, found: $ty"
-          }
-        } else (term, ty)
-      }
-
-      case ExprTerm.Apply(fn, args) => {
-        val (fnTerm, fnType) = fn.synthesize
-        val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
-          case ((accFnTerm: Term, accFnType: Type), arg) => {
-            accFnType match {
-              case Type.Arrow(domain, codomain) => {
-                // When arg is a lambda without annotation, 
-                //  we need to infer its type from accFnType
-                val (argTerm, argType) = arg.synthesize(Some(domain))
-                if !argTerm.check(codomain) then TypeNotMatch.raise {
-                  s"Expected argument type: $domain, found: $argType"
-                }
-                (Term.Apply(accFnTerm, argTerm), codomain)
+    case ExprTerm.Apply(fn, args) => {
+      val (fnTerm, fnType) = fn.synthesize
+      val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
+        case ((accFnTerm: Term, accFnType: Type), arg) => {
+          accFnType match {
+            case Type.Arrow(domain, codomain) => {
+              // When arg is a lambda without annotation, 
+              //  we need to infer its type from accFnType
+              val (argTerm: Term, argType: Type) = arg.synthesize(Some(domain))
+              if !argTerm.check(domain) then TypeNotMatch.raise {
+                s"Expected argument type: $domain, found: $argType"
               }
-              case _ => TypeNotMatch.raise {
-                s"Function application on a non-function type: $accFnType"
-              }
+              (Term.Apply(accFnTerm, argTerm), codomain)
             }
-          }
-        }
-        if !fnAppTerm.check(fnAppType) then TypeNotMatch.raise {
-          s"Function application term does not check against its type: $fnAppTerm : $fnAppType"
-        } else (fnAppTerm, fnAppType)
-      }
-
-      case ExprTerm.Lambda(paramName, paramTypeOpt, body) => {
-        val paramType: Type = paramTypeOpt match {
-          case Some(tyExpr) => tyExpr.synthesize
-          case None => expectedType match {
-            case Some(Type.Arrow(domain, _)) => domain
             case _ => TypeNotMatch.raise {
-              s"Cannot infer parameter type of lambda without annotation: $this"
+              s"Function application on a non-function type: $accFnType"
             }
           }
         }
-        env.withTermVar(paramName, Term.Typed(Term.Var(paramName), paramType)) { env =>
-          val (bodyTerm, bodyType) = body.synthesize(using env)
-          val lambdaTerm = Term.Lambda(paramName, paramType, bodyTerm)
-          val lambdaType = Type.Arrow(paramType, bodyType)
-          if !lambdaTerm.check(lambdaType) then TypeNotMatch.raise {
-            s"Lambda term does not check against its type: $lambdaTerm : $lambdaType"
-          } else (lambdaTerm, lambdaType)
-        }
       }
-      
-      case ExprTerm.TypeLambda(paramName, body) => {
-        env.withTypeVar(paramName, Type.Var(paramName)) { env =>
-          val (bodyTerm, bodyType) = body.synthesize(using env)
-          val typeLambdaTerm = Term.TypeLambda(paramName, bodyTerm)
-          val typeLambdaType = Type.Forall(paramName, bodyType)
-          if !typeLambdaTerm.check(typeLambdaType) then TypeNotMatch.raise {
-            s"Type lambda term does not check against its type: $typeLambdaTerm : $typeLambdaType"
-          } else (typeLambdaTerm, typeLambdaType)
-        }
-      }
-        
-      case ExprTerm.Fixpoint(name, tyExpr, recursiveBody) => {
-        val ty = tyExpr.synthesize
-        ty match {
-          case Type.Arrow(domain, codomain) => 
-            env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
-              val (bodyTerm, bodyType) = recursiveBody.synthesize(using env)
-              if !(bodyType <:< ty) then TypeNotMatch.raise {
-                s"Body type of fixpoint does not match annotated type: $bodyType vs $ty"
-              }
-              val fixpointTerm = Term.Fixpoint(name, ty, bodyTerm)
-              if !fixpointTerm.check(ty) then TypeNotMatch.raise {
-                s"Fixpoint term does not check against its type: $fixpointTerm : $ty"
-              } else (fixpointTerm, ty)
-            }
-          case _ => TypeNotMatch.raise {
-            s"Fixpoint $name must have a function type, but got: $ty"
-          }
-        }
-      }
-      
-      case ExprTerm.IfThenElse(condition, thenBranch, elseBranch) => {
-        val (condTerm, condType) = condition.synthesize
-        if !(condType unify Type.Primitive(LiteralType.BoolType)) then TypeNotMatch.raise {
-          s"Condition of if-then-else must be of type Bool, but got: $condType"
-        }
-        val (thenTerm, thenType) = thenBranch.synthesize
-        val (elseTerm, elseType) = elseBranch.synthesize
-        if !(thenType <:< elseType) && !(elseType <:< thenType) then TypeNotMatch.raise {
-          s"Branches of if-then-else must have compatible types, but got: $thenType and $elseType"
-        }
-        val resultType = if (thenType <:< elseType) elseType else thenType
-        val ifTerm = Term.IfThenElse(condTerm, thenTerm, elseTerm)
-        if !ifTerm.check(resultType) then TypeNotMatch.raise {
-          s"If-then-else term does not check against its type: $ifTerm : $resultType"
-        } else (ifTerm, resultType)
-      }
-      
-      case ExprTerm.LetIn(name, value, tyExprOpt, body) => {
-        val (valueTerm, valueType) = value.synthesize
-        val ty = tyExprOpt match {
-          case Some(tyExpr) => {
-            val expectedType = tyExpr.synthesize
-            if !valueTerm.check(expectedType) then TypeNotMatch.raise {
-              s"Let-binding value type does not match annotated type: $valueType vs $expectedType"
-            } else expectedType
-          }
-          case None => valueType
-        }
-        // Convert let-in to application of lambda
-        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
-          val (bodyTerm, bodyType) = body.synthesize(using env)
-          val letTerm = Term.Apply(Term.Lambda(name, ty, bodyTerm), valueTerm)
-          if !letTerm.check(bodyType) then TypeNotMatch.raise {
-            s"Let-in term does not check against its type: $letTerm : $bodyType"
-          } else (letTerm, bodyType)
-        }
-      }
-      
-      case ExprTerm.Record(fields) => {
-        val synthesizedFields: Map[String, (Term, Type)] = fields.map {
-          case (fieldName, fieldExpr) => {
-            val (fieldTerm, fieldType) = fieldExpr.synthesize
-            (fieldName, (fieldTerm, fieldType))
-          }
-        }
-        val recordTerm = Term.Record(synthesizedFields.map {
-          case (fieldName, (fieldTerm, _)) => (fieldName, fieldTerm)
-        })
-        val recordType = Type.Record(synthesizedFields.map {
-          case (fieldName, (_, fieldType)) => (fieldName, fieldType)
-        })
-        if !recordTerm.check(recordType) then TypeNotMatch.raise {
-          s"Record term does not check against its type: $recordTerm : $recordType"
-        } else (recordTerm, recordType)
-      }
-      
-      case ExprTerm.Tuple(elements) => {
-        val synthesizedElements: List[(Term, Type)] = elements.map { elemExpr =>
-          elemExpr.synthesize
-        }
-        val tupleTerm = Term.Tuple(synthesizedElements.map(_._1))
-        val tupleType = Type.Tuple(synthesizedElements.map(_._2))
-        if !tupleTerm.check(tupleType) then TypeNotMatch.raise {
-          s"Tuple term does not check against its type: $tupleTerm : $tupleType"
-        } else (tupleTerm, tupleType)
-      }
+      if !fnAppTerm.check(fnAppType) then TypeNotMatch.raise {
+        s"Function application term does not check against its type: $fnAppTerm : $fnAppType"
+      } else (fnAppTerm, fnAppType)
+    }
 
-      case ExprTerm.Merge(left, right, MergeBias.Left) => ExprTerm.Merge(
-        left, ExprTerm.Diff(right, left), MergeBias.Neutral
-      ).synthesize
-
-      case ExprTerm.Merge(left, right, MergeBias.Right) => ExprTerm.Merge(
-        ExprTerm.Diff(left, right), right, MergeBias.Neutral
-      ).synthesize
-      
-      case ExprTerm.Merge(left, right, MergeBias.Neutral) => {
-        val (leftTerm, leftType) = left.synthesize
-        val (rightTerm, rightType) = right.synthesize
-        (leftType, rightType) match {
-          case (Type.Primitive(LiteralType.TopType), _) => (rightTerm, rightType)
-          case (_, Type.Primitive(LiteralType.TopType)) => (leftTerm, leftType)
-          case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
-            // Merging two traits
-            if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
-              s"Cannot merge two overlapping traits: $leftType and $rightType"
-            }
-            val mergedType = (leftDomain, rightDomain) match {
-              case (Type.Primitive(LiteralType.TopType), _) => rightType
-              case (_, Type.Primitive(LiteralType.TopType)) => leftType
-              case _ => Type.Intersection(leftType, rightType)
-            }
-            Term.Coercion(
-              param = "$self",
-              paramType = mergedType,
-              body = Term.Merge(
-                Term.Apply(leftTerm, Term.Var("$self")),
-                Term.Apply(rightTerm, Term.Var("$self")),
-                MergeBias.Neutral
-              ),
-            ) -> Type.Trait(
-              domain = mergedType, 
-              codomain = Type.Intersection(leftCodomain, rightCodomain)
-            )
-          }
-          case _ => 
-            if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
-              s"Cannot merge two overlapping types: $leftType and $rightType"
-            }
-            val mergedTerm = Term.Merge(leftTerm, rightTerm, MergeBias.Neutral)
-            val mergedType = Type.Intersection(leftType, rightType)
-            if !mergedTerm.check(mergedType) then TypeNotMatch.raise {
-              s"Merged term does not check against its type: $mergedTerm : $mergedType"
-            } else (mergedTerm, mergedType)
-        }
-      }
-        
-      case ExprTerm.Projection(record, field) => {
-        val (recordTerm, recordType) = record.synthesize
-        recordType match {
-          case Type.Record(fieldTypes) => 
-            fieldTypes.get(field) match {
-              case Some(fieldType) => 
-                val projTerm = Term.Projection(recordTerm, field)
-                if !projTerm.check(fieldType) then TypeNotMatch.raise {
-                  s"Projection term does not check against its type: $projTerm : $fieldType"
-                } else (projTerm, fieldType)
-              case None => TypeNotMatch.raise {
-                s"Field $field not found in record type: $recordType"
-              }
-            }
+    case ExprTerm.Lambda(paramName, paramTypeOpt, body) => {
+      val paramType: Type = paramTypeOpt match {
+        case Some(tyExpr) => tyExpr.synthesize
+        case None => expectedType match {
+          case Some(Type.Arrow(domain, _)) => domain
           case _ => TypeNotMatch.raise {
-            s"Projection on a non-record type: $recordType"
+            s"Cannot infer parameter type of lambda without annotation: $this"
           }
         }
       }
-        
-      case ExprTerm.TypeApply(term, tyArgs) => {
-        val (fnTerm, fnType) = term.synthesize
-        val (fnAppTerm, fnAppType) = tyArgs.foldLeft((fnTerm, fnType)) {
-          case ((accFnTerm: Term, accFnType: Type), tyArg) => {
-            accFnType match {
-              case Type.Forall(paramName, body, constraints) => {
-                val tyArgType = tyArg.synthesize
-                constraints.forall { constraint =>
-                  if !constraint.check(tyArgType) then ConstraintNotSatisfied.raise {
-                    s"Type argument $tyArgType does not satisfy constraint $constraint"
-                  } else true
-                }
-                val substitutedBody = body.subst(paramName, tyArgType)
-                (Term.TypeApply(accFnTerm, tyArgType), substitutedBody)
-              }
-              case _ => TypeNotMatch.raise {
-                s"Type application on a non-polymorphic type: $accFnType"
-              }
-            }
-          }
-        }
-        if !fnAppTerm.check(fnAppType) then TypeNotMatch.raise {
-          s"Type application term does not check against its type: $fnAppTerm : $fnAppType"
-        } else (fnAppTerm, fnAppType)
+      env.withTermVar(paramName, Term.Typed(Term.Var(paramName), paramType)) { env =>
+        val (bodyTerm, bodyType) = body.synthesize(using env)
+        val lambdaTerm = Term.Lambda(paramName, paramType, bodyTerm)
+        val lambdaType = Type.Arrow(paramType, bodyType)
+        if !lambdaTerm.check(lambdaType) then TypeNotMatch.raise {
+          s"Lambda term does not check against its type: $lambdaTerm : $lambdaType"
+        } else (lambdaTerm, lambdaType)
       }
+    }
+    
+    case ExprTerm.TypeLambda(paramName, body) => {
+      env.withTypeVar(paramName, Type.Var(paramName)) { env =>
+        val (bodyTerm, bodyType) = body.synthesize(using env)
+        val typeLambdaTerm = Term.TypeLambda(paramName, bodyTerm)
+        val typeLambdaType = Type.Forall(paramName, bodyType)
+        if !typeLambdaTerm.check(typeLambdaType) then TypeNotMatch.raise {
+          s"Type lambda term does not check against its type: $typeLambdaTerm : $typeLambdaType"
+        } else (typeLambdaTerm, typeLambdaType)
+      }
+    }
       
-      // open e in M, where e: { l1: A1, l2: A2, ..., ln: An }
-      // is equivalent to let x = e in M [x.l1 / l1, x.l2 / l2, ..., x.ln / ln]
-      case ExprTerm.OpenIn(record, body) => {
-        val (recordTerm, recordType) = record.synthesize
-        // 1. Create a fresh variable to hold the record value,
-        //    so that the record expression is only evaluated once.
-        val freshVarName = "$open_record"
-        val freshVarTerm = Term.Var(freshVarName)
-        val freshVarTermExpr = ExprTerm.Var(freshVarName)
-        // 2. Create the body term with field projections substituted.
-        val (bodyTerm, bodyType) = recordType match {
-          case Type.Record(fieldTypes) => {
-            val substitutedBody = fieldTypes.foldLeft(body) {
-              case (accBody, (fieldName, _)) => {
-                accBody.subst(fieldName, ExprTerm.Projection(freshVarTermExpr, fieldName))
-              }
+    case ExprTerm.Fixpoint(name, tyExpr, recursiveBody) => {
+      val ty = tyExpr.synthesize
+      ty match {
+        case Type.Arrow(domain, codomain) => 
+          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
+            val (bodyTerm, bodyType) = recursiveBody.synthesize(using env)
+            if !(bodyType <:< ty) then TypeNotMatch.raise {
+              s"Body type of fixpoint does not match annotated type: $bodyType vs $ty"
             }
-            val newEnv: Environment = env.addTermVar(freshVarName, Term.Typed(freshVarTerm, recordType))
-            substitutedBody.synthesize(using newEnv)
+            val fixpointTerm = Term.Fixpoint(name, ty, bodyTerm)
+            if !fixpointTerm.check(ty) then TypeNotMatch.raise {
+              s"Fixpoint term does not check against its type: $fixpointTerm : $ty"
+            } else (fixpointTerm, ty)
           }
-          case _ => TypeNotMatch.raise(s"Opening a non-record type: $recordType")
+        case _ => TypeNotMatch.raise {
+          s"Fixpoint $name must have a function type, but got: $ty"
         }
-        // 3. Create the let-in term to bind the fresh variable to the record expression.
-        val letTerm = Term.Apply(
-          Term.Lambda(freshVarName, recordType, bodyTerm),
-          recordTerm
-        )
+      }
+    }
+    
+    case ExprTerm.IfThenElse(condition, thenBranch, elseBranch) => {
+      val (condTerm, condType) = condition.synthesize
+      if !(condType unify Type.Primitive(LiteralType.BoolType)) then TypeNotMatch.raise {
+        s"Condition of if-then-else must be of type Bool, but got: $condType"
+      }
+      val (thenTerm, thenType) = thenBranch.synthesize
+      val (elseTerm, elseType) = elseBranch.synthesize
+      if !(thenType <:< elseType) && !(elseType <:< thenType) then TypeNotMatch.raise {
+        s"Branches of if-then-else must have compatible types, but got: $thenType and $elseType"
+      }
+      val resultType = if (thenType <:< elseType) elseType else thenType
+      val ifTerm = Term.IfThenElse(condTerm, thenTerm, elseTerm)
+      if !ifTerm.check(resultType) then TypeNotMatch.raise {
+        s"If-then-else term does not check against its type: $ifTerm : $resultType"
+      } else (ifTerm, resultType)
+    }
+    
+    case ExprTerm.LetIn(name, value, tyExprOpt, body) => {
+      val (valueTerm, valueType) = value.synthesize
+      val ty = tyExprOpt match {
+        case Some(tyExpr) => {
+          val expectedType = tyExpr.synthesize
+          if !valueTerm.check(expectedType) then TypeNotMatch.raise {
+            s"Let-binding value type does not match annotated type: $valueType vs $expectedType"
+          } else expectedType
+        }
+        case None => valueType
+      }
+      // Convert let-in to application of lambda
+      env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
+        val (bodyTerm, bodyType) = body.synthesize(using env)
+        val letTerm = Term.Apply(Term.Lambda(name, ty, bodyTerm), valueTerm)
         if !letTerm.check(bodyType) then TypeNotMatch.raise {
-          s"Open-in term does not check against its type: $letTerm : $bodyType"
+          s"Let-in term does not check against its type: $letTerm : $bodyType"
         } else (letTerm, bodyType)
       }
-      
-      case ExprTerm.Update(_, _) => ???
-      case ExprTerm.Trait(_, _, _, _) => ???
-      case ExprTerm.New(_) => ???
-      case ExprTerm.Forward(_, _) => ???
-      case ExprTerm.Exclude(_, _) => ???
-      case ExprTerm.Remove(_, _) => ???
-      case ExprTerm.Diff(_, _) => ???
-      case ExprTerm.Rename(_, _) => ???
-      case ExprTerm.FoldFixpoint(_, _) => ???
-      case ExprTerm.UnfoldFixpoint(_, _) => ???
-      case ExprTerm.ArrayLiteral(_) => ???
-      
-      case ExprTerm.Do(expr, body) => {
-        val (exprTerm, exprType) = expr.synthesize
-        val (bodyTerm, bodyType) = body.synthesize
-        val doTerm = Term.Do(exprTerm, bodyTerm)
-        if !doTerm.check(bodyType) then TypeNotMatch.raise {
-          s"Do term does not check against its type: $doTerm : $bodyType"
-        } else (doTerm, bodyType)
+    }
+    
+    case ExprTerm.Record(fields) => {
+      val synthesizedFields: Map[String, (Term, Type)] = fields.map {
+        case (fieldName, fieldExpr) => {
+          val (fieldTerm, fieldType) = fieldExpr.synthesize
+          (fieldName, (fieldTerm, fieldType))
+        }
       }
-      
-      case ExprTerm.Document(_) => ???
+      val recordTerm = Term.Record(synthesizedFields.map {
+        case (fieldName, (fieldTerm, _)) => (fieldName, fieldTerm)
+      })
+      val recordType = Type.Record(synthesizedFields.map {
+        case (fieldName, (_, fieldType)) => (fieldName, fieldType)
+      })
+      if !recordTerm.check(recordType) then TypeNotMatch.raise {
+        s"Record term does not check against its type: $recordTerm : $recordType"
+      } else (recordTerm, recordType)
+    }
+    
+    case ExprTerm.Tuple(elements) => {
+      val synthesizedElements: List[(Term, Type)] = elements.map { elemExpr =>
+        elemExpr.synthesize
+      }
+      val tupleTerm = Term.Tuple(synthesizedElements.map(_._1))
+      val tupleType = Type.Tuple(synthesizedElements.map(_._2))
+      if !tupleTerm.check(tupleType) then TypeNotMatch.raise {
+        s"Tuple term does not check against its type: $tupleTerm : $tupleType"
+      } else (tupleTerm, tupleType)
+    }
 
-      case ExprTerm.Span(term, span) => try term.synthesize catch {
-        case e: CoreError => throw e.withSpan(span)
-        case e: SpannedError => throw e
-        case e: Throwable => throw UnknownError(e, span)
+    case ExprTerm.Merge(left, right, MergeBias.Left) => ExprTerm.Merge(
+      left, ExprTerm.Diff(right, left), MergeBias.Neutral
+    ).synthesize
+
+    case ExprTerm.Merge(left, right, MergeBias.Right) => ExprTerm.Merge(
+      ExprTerm.Diff(left, right), right, MergeBias.Neutral
+    ).synthesize
+    
+    case ExprTerm.Merge(left, right, MergeBias.Neutral) => {
+      val (leftTerm, leftType) = left.synthesize
+      val (rightTerm, rightType) = right.synthesize
+      (leftType, rightType) match {
+        case (Type.Primitive(LiteralType.TopType), _) => (rightTerm, rightType)
+        case (_, Type.Primitive(LiteralType.TopType)) => (leftTerm, leftType)
+        case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
+          // Merging two traits
+          if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
+            s"Cannot merge two overlapping traits: $leftType and $rightType"
+          }
+          val mergedType = (leftDomain, rightDomain) match {
+            case (Type.Primitive(LiteralType.TopType), _) => rightType
+            case (_, Type.Primitive(LiteralType.TopType)) => leftType
+            case _ => Type.Intersection(leftType, rightType)
+          }
+          Term.Coercion(
+            param = "$self",
+            paramType = mergedType,
+            body = Term.Merge(
+              Term.Apply(leftTerm, Term.Var("$self")),
+              Term.Apply(rightTerm, Term.Var("$self")),
+              MergeBias.Neutral
+            ),
+          ) -> Type.Trait(
+            domain = mergedType, 
+            codomain = Type.Intersection(leftCodomain, rightCodomain)
+          )
+        }
+        case _ => 
+          if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
+            s"Cannot merge two overlapping types: $leftType and $rightType"
+          }
+          val mergedTerm = Term.Merge(leftTerm, rightTerm, MergeBias.Neutral)
+          val mergedType = Type.Intersection(leftType, rightType)
+          if !mergedTerm.check(mergedType) then TypeNotMatch.raise {
+            s"Merged term does not check against its type: $mergedTerm : $mergedType"
+          } else (mergedTerm, mergedType)
       }
+    }
+      
+    case ExprTerm.Projection(record, field) => {
+      val (recordTerm, recordType) = record.synthesize
+      recordType match {
+        case Type.Record(fieldTypes) => 
+          fieldTypes.get(field) match {
+            case Some(fieldType) => 
+              val projTerm = Term.Projection(recordTerm, field)
+              if !projTerm.check(fieldType) then TypeNotMatch.raise {
+                s"Projection term does not check against its type: $projTerm : $fieldType"
+              } else (projTerm, fieldType)
+            case None => TypeNotMatch.raise {
+              s"Field $field not found in record type: $recordType"
+            }
+          }
+        case _ => TypeNotMatch.raise {
+          s"Projection on a non-record type: $recordType"
+        }
+      }
+    }
+      
+    case ExprTerm.TypeApply(term, tyArgs) => {
+      val (fnTerm, fnType) = term.synthesize
+      val (fnAppTerm, fnAppType) = tyArgs.foldLeft((fnTerm, fnType)) {
+        case ((accFnTerm: Term, accFnType: Type), tyArg) => {
+          accFnType match {
+            case Type.Forall(paramName, body, constraints) => {
+              val tyArgType = tyArg.synthesize
+              constraints.forall { constraint =>
+                if !constraint.verify(tyArgType) then ConstraintNotSatisfied.raise {
+                  s"Type argument $tyArgType does not satisfy constraint $constraint"
+                } else true
+              }
+              val substitutedBody = body.subst(paramName, tyArgType)
+              (Term.TypeApply(accFnTerm, tyArgType), substitutedBody)
+            }
+            case _ => TypeNotMatch.raise {
+              s"Type application on a non-polymorphic type: $accFnType"
+            }
+          }
+        }
+      }
+      if !fnAppTerm.check(fnAppType) then TypeNotMatch.raise {
+        s"Type application term does not check against its type: $fnAppTerm : $fnAppType"
+      } else (fnAppTerm, fnAppType)
+    }
+    
+    // open e in M, where e: { l1: A1, l2: A2, ..., ln: An }
+    // is equivalent to let x = e in M [x.l1 / l1, x.l2 / l2, ..., x.ln / ln]
+    case ExprTerm.OpenIn(record, body) => {
+      val (recordTerm, recordType) = record.synthesize
+      // 1. Create a fresh variable to hold the record value,
+      //    so that the record expression is only evaluated once.
+      val freshVarName = "$open_record"
+      val freshVarTerm = Term.Var(freshVarName)
+      val freshVarTermExpr = ExprTerm.Var(freshVarName)
+      // 2. Create the body term with field projections substituted.
+      val (bodyTerm, bodyType) = recordType match {
+        case Type.Record(fieldTypes) => {
+          val substitutedBody = fieldTypes.foldLeft(body) {
+            case (accBody, (fieldName, _)) => {
+              accBody.subst(fieldName, ExprTerm.Projection(freshVarTermExpr, fieldName))
+            }
+          }
+          val newEnv: Environment = env.addTermVar(freshVarName, Term.Typed(freshVarTerm, recordType))
+          substitutedBody.synthesize(using newEnv)
+        }
+        case _ => TypeNotMatch.raise(s"Opening a non-record type: $recordType")
+      }
+      // 3. Create the let-in term to bind the fresh variable to the record expression.
+      val letTerm = Term.Apply(
+        Term.Lambda(freshVarName, recordType, bodyTerm),
+        recordTerm
+      )
+      if !letTerm.check(bodyType) then TypeNotMatch.raise {
+        s"Open-in term does not check against its type: $letTerm : $bodyType"
+      } else (letTerm, bodyType)
+    }
+    
+    case ExprTerm.Update(_, _) => ???
+    case ExprTerm.Trait(_, _, _, _) => ???
+    case ExprTerm.New(_) => ???
+    case ExprTerm.Forward(_, _) => ???
+    case ExprTerm.Exclude(_, _) => ???
+    case ExprTerm.Remove(_, _) => ???
+    case ExprTerm.Diff(_, _) => ???
+    case ExprTerm.Rename(_, _) => ???
+    case ExprTerm.FoldFixpoint(_, _) => ???
+    case ExprTerm.UnfoldFixpoint(_, _) => ???
+    case ExprTerm.ArrayLiteral(_) => ???
+    
+    case ExprTerm.Do(expr, body) => {
+      val (exprTerm, exprType) = expr.synthesize
+      val (bodyTerm, bodyType) = body.synthesize
+      val doTerm = Term.Do(exprTerm, bodyTerm)
+      if !doTerm.check(bodyType) then TypeNotMatch.raise {
+        s"Do term does not check against its type: $doTerm : $bodyType"
+      } else (doTerm, bodyType)
+    }
+    
+    case ExprTerm.Document(_) => ???
+
+    case ExprTerm.Span(term, span) => try term.synthesize catch {
+      case e: CoreError => throw e.withSpan(span)
+      case e: SpannedError => throw e
+      case e: Throwable => throw UnknownError(e, span)
     }
   }
   

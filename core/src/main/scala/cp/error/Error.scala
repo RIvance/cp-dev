@@ -10,6 +10,7 @@ trait SpannedError extends Exception {
 case class UnknownError(cause: Throwable, span: SourceSpan) extends SpannedError {
   override def message: String = cause.getMessage
   override def infoSpans: Map[SourceSpan, String] = Map(span -> cause.toString)
+  override def getStackTrace: Array[StackTraceElement] = cause.getStackTrace
 }
 
 case class SingleSpanError(
@@ -22,7 +23,11 @@ case class SingleSpanError(
 }
 
 case class CoreError(kind: ErrorKind, info: String) extends Exception {
-  def withSpan(span: SourceSpan): SpannedError = SingleSpanError(kind, info, span)
+  def withSpan(span: SourceSpan): SpannedError = {
+    val spannedError = SingleSpanError(kind, info, span)
+    spannedError.setStackTrace(this.getStackTrace)
+    spannedError
+  }
   override def toString: String = s"Error: ${kind.message} - $info"
 }
 

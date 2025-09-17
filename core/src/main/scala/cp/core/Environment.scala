@@ -47,5 +47,29 @@ case class Environment(
 }
 
 object Environment {
+  
   def empty: Environment = Environment()
+  
+  def builder: Builder = Builder()
+  
+  class Builder {
+    private var env: Environment = Environment.empty
+
+    def typeVar(name: String, ty: Type): Builder = {
+      env = env.addTypeVar(name, ty)
+      this
+    }
+
+    def termVar(name: String, term: Term): Builder = {
+      env = env.addTermVar(name, term)
+      this
+    }
+
+    def build(): Environment = env
+    
+    def buildWith(f: Builder => Unit): Environment = {
+      f(this)
+      this.build()
+    }
+  }
 }
