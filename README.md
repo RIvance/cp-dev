@@ -8,6 +8,8 @@ This is the third major implementation of CP (CP3), following the original [CP-n
 
 This implementation features a modern REPL, a multi-stage compiler (WIP), a novel module system, upper/lower bounded polymorphism, FFI (WIP), and many syntax enhancements. 
 
+⚠️ This project is under active development. For a functional version of the language, please refer to the previous [CP implementations]((https://github.com/yzyzsun/CP-next)).
+
 ## Language Features
 
 - A typed lambda calculus with five base types (`Int` `Double` `String` `Bool` `()`), built-in arrays (`[1; 2; 3] : [Int]`), and references[^Ref];
