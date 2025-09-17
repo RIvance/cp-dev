@@ -73,7 +73,7 @@ type
     |   TraitType Less inType=type (FatArrow outType=type)? Greater        # typeTrait
     |   RefType typeWithSort                                # typeRef
     |   ty=typeWithSort BracketOpen args+=typeWithSort (Comma args+=typeWithSort)* BracketClose     # typeApp
-    |   typeWithSort args+=typeWithSort*                    # typeSpine
+    |   ty=typeWithSort args+=typeWithSort*                 # typeSpine
     ;
 
 typeWithSort

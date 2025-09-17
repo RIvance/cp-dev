@@ -167,7 +167,11 @@ class Visitor extends CpParserBaseVisitor[
   }
   
   extension (ctx: TypedExprContext) {
-    def visit: ExprTerm = ExprTerm.Typed(ctx.expression.visit, ctx.`type`.visit)
+    def visit: ExprTerm = Option(ctx.`type`).map {
+      ty => ExprTerm.Typed(ctx.expression.visit, ty.visit).withSpan(ctx)
+    }.getOrElse {
+      ctx.expression.visit.withSpan(ctx)
+    }
   }
 
   extension (ctx: CompExprContext) {
@@ -494,7 +498,7 @@ class Visitor extends CpParserBaseVisitor[
       case floatCtx: AtomicExprFloatContext =>
         ExprTerm.Primitive(Literal.FloatValue(floatCtx.FloatLit.getText.toFloat))
       case stringCtx: AtomicExprStringContext =>
-        ExprTerm.Primitive(Literal.StringValue(stringCtx.StringLit.getText))
+        ExprTerm.Primitive(Literal.StringValue(stringCtx.StringLit.getText.stripPrefix("\"").stripSuffix("\"")))
       // case docCtx: AtomicExprDocContext =>
       //   ExprTerm.Document(docCtx.document.visit)
       case unitCtx: AtomicExprUnitContext =>
@@ -626,7 +630,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitTypeSpine(ctx: TypeSpineContext): ExprType = {
-    val baseType = ctx.typeWithSort.visit
+    val baseType = ctx.ty.visit
     val args = ctx.args.asScala.map(_.visit).toList
     // Apply spine arguments sequentially
     args.foldLeft(baseType) { (currentType, arg) =>
@@ -637,7 +641,8 @@ class Visitor extends CpParserBaseVisitor[
   override def visitTypeWithSort(ctx: TypeWithSortContext): ExprType = {
     val baseType = ctx.typeLiteral.visit
     val sorts = Option(ctx.sort).map(_.asScala.map(_.visit).toList).getOrElse(Nil)
-    ??? // TODO: Apply sorts to baseType
+    // TODO: Apply sorts to baseType
+    baseType
   }
 
   override def visitTypeIdent(ctx: TypeIdentContext): ExprType = {
