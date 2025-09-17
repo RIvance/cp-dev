@@ -62,7 +62,7 @@ enum ExprType extends OptionalSpanned[ExprType] {
     case Forall(paramName, codomain, cons) => {
       val allConstraints = constraints.filter(_.targetTypeParam == paramName) ++ cons
       val synthesizedConstraints = allConstraints.map(_.synthesize)
-      env.withTypeVar(paramName, Type.Var(paramName)) { newEnv =>
+      env.withTypeVar(paramName, Type.Var(paramName)) { implicit newEnv =>
         Type.Forall(paramName, codomain.synthesize, synthesizedConstraints.map(_.rename(paramName)))
       }
     }

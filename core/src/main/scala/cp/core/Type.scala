@@ -286,11 +286,11 @@ enum Type {
     case Trait(domain, codomain) => Trait(domain.normalize, codomain.normalize)
 
     case Forall(param, codomain, constraints) => {
-      env.withFreshTypeVar { (freshVar, newEnv) =>
+      env.withTypeVar(param, Type.Var(param)) { implicit newEnv =>
         given Environment = newEnv
         Type.Forall(
           paramName = param,
-          codomain.subst(param, freshVar).normalize,
+          codomain.normalize,
           constraints.compact.map(_.rename(param))
         )
       }

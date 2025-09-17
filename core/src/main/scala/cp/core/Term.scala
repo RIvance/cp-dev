@@ -103,7 +103,7 @@ enum Term {
     
     case Lambda(param, paramType, body) => {
       env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
-        newEnv => Type.Arrow(paramType, body.infer(using newEnv))
+        implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv))
       }
     }
 
@@ -111,7 +111,7 @@ enum Term {
     
     case TypeLambda(param, body) => {
       env.withTypeVar(param, Type.Var(param)) { 
-        newEnv => Type.Forall(param, body.infer(using newEnv))
+        implicit newEnv => Type.Forall(param, body.infer(using newEnv))
       }
     }
     
@@ -230,7 +230,7 @@ enum Term {
           s"Lambda parameter type ${paramType} does not match expected type ${expectedParamType}"
         } else {
           env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
-            newEnv => body.check(expectedReturnType)(using newEnv)
+            implicit newEnv => body.check(expectedReturnType)(using newEnv)
           }
         }
       case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
@@ -242,7 +242,7 @@ enum Term {
           s"Coercion parameter type ${paramType} does not match expected type ${expectedParamType}"
         } else {
           env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
-            newEnv => body.check(expectedReturnType)(using newEnv)
+            implicit newEnv => body.check(expectedReturnType)(using newEnv)
           }
         }
       case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
@@ -253,7 +253,7 @@ enum Term {
         if param != expectedParam then TypeNotMatch.raise {
           s"Type lambda parameter ${param} does not match expected parameter ${expectedParam}"
         } else {
-          env.withTypeVar(param, Type.Var(param)) { newEnv =>
+          env.withTypeVar(param, Type.Var(param)) { implicit newEnv =>
             body.check(bodyType)(using newEnv)
           }
         }
@@ -264,7 +264,7 @@ enum Term {
       if !(ty <:< expectedType) then TypeNotMatch.raise {
         s"Fixpoint type ${ty} does not match expected type ${expectedType}"
       } else {
-        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { newEnv =>
+        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv =>
           recursiveBody.check(ty)(using newEnv)
         }
       }
@@ -369,9 +369,9 @@ enum Term {
       //  it will not cause multiple side effects.
       (funcEval, argEval, mode) match {
         case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue =>
-          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case (Lambda(param, _, body), argValue, EvalMode.Full) =>
-          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity =>
           // For partially applied native function calls, we can perform type application
           //  to instantiate the polymorphic native function.
@@ -394,9 +394,9 @@ enum Term {
       val coeEval: Term = coe.eval
       (coeEval, argEval, mode) match {
         case (Coercion(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => 
-          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case (Coercion(param, _, body), argValue, EvalMode.Full) => 
-          env.withTermVar(param, argValue) { newEnv => body.eval(using newEnv) }
+          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.CoeApply(coeEval, argEval)
       }
     }
@@ -406,26 +406,26 @@ enum Term {
       (termEval, mode) match {
         // It is always safe to perform type-level beta-reduction.
         case (TypeLambda(param, body), EvalMode.Normalize | EvalMode.Full) => 
-          env.withTypeVar(param, tyArg) { newEnv => body.eval(using newEnv) }
+          env.withTypeVar(param, tyArg) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.TypeApply(termEval, tyArg)
       }
     }
     
     case Lambda(param, paramType, body) => {
       env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
-        newEnv => Term.Lambda(param, paramType, body.eval(using newEnv))
+        implicit newEnv => Term.Lambda(param, paramType, body.eval(using newEnv))
       }
     }
     
     case Coercion(param, paramType, body) => {
       env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { 
-        newEnv => Term.Coercion(param, paramType, body.eval(using newEnv))
+        implicit newEnv => Term.Coercion(param, paramType, body.eval(using newEnv))
       }
     }
     
     case TypeLambda(param, body) => {
       env.withTypeVar(param, Type.Var(param)) { 
-        newEnv => Term.TypeLambda(param, body.eval(using newEnv))
+        implicit newEnv => Term.TypeLambda(param, body.eval(using newEnv))
       }
     }
     
@@ -437,14 +437,14 @@ enum Term {
           // To avoid infinite unfolding of fixpoints, we assign a variable
           //  representing the fixpoint itself in the environment.
           env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { 
-            newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
+            implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
           }
         }
         case EvalMode.Full => {
           // In full evaluation mode, we always unfold the fixpoint.
           // Therefore, we assign the fixpoint term itself in the environment.
           env.withTermVar(name, this) { 
-            newEnv => recursiveBody.eval(using newEnv)
+            implicit newEnv => recursiveBody.eval(using newEnv)
           }
         }
       }
@@ -564,69 +564,69 @@ enum Term {
     case _: TypeApply => s"($this)"
     case _ => this.toString
   }
-  
+
   override def toString: String = this match {
-    
+
     case Var(name) => name
-    
+
     case Typed(term, ty) => s"($term : $ty)"
-    
+
     case Primitive(value) => value.toString
-    
+
     case Apply(func, arg) => s"${func.toAtomString} ${arg.toAtomString}"
-    
+
     case CoeApply(coe, arg) => s"${coe.toAtomString} ${arg.toAtomString}"
-    
+
     case TypeApply(term, tyArg) => s"${term.toAtomString} @${tyArg}"
-    
+
     case Lambda(param, paramType, body) => s"λ($param: $paramType). ${body.toAtomString}"
-    
+
     case Coercion(param, paramType, body) => s"trait ($param: $paramType). $body"
-    
+
     case TypeLambda(param, body) => s"Λ$param. $body"
-    
+
     case Fixpoint(name, ty, recursiveBody) => s"fix $name: $ty = $recursiveBody"
-    
+
     case Projection(record, field) => s"${record.toAtomString}.$field"
-    
+
     case Record(fields) => s"{${fields.map { (name, term) => s"$name = $term" }.mkString("; ")}}"
-    
+
     case Tuple(elements) => s"(${elements.map(_.toString).mkString(", ")})"
-    
+
     case Merge(left, right, bias) => bias match {
       case MergeBias.Neutral => s"$left ,, $right"
       case MergeBias.Left => s"$left ,> $right"
       case MergeBias.Right => s"$left <, $right"
     }
-    
+
     case IfThenElse(condition, thenBranch, elseBranch) => {
       s"if $condition then $thenBranch else $elseBranch"
     }
-      
-    // case Match(scrutinee, clauses) => 
+
+    // case Match(scrutinee, clauses) =>
     //   s"match $scrutinee {\n${clauses.map(clause => s"  $clause").mkString("\n")}\n}"
-      
+
     case ArrayLiteral(elements) => s"[${elements.map(_.toString).mkString(", ")}]"
-    
+
     case FoldFixpoint(fixpointType, body) => s"fold[$fixpointType] $body"
-    
+
     case UnfoldFixpoint(fixpointType, term) => s"unfold[$fixpointType] $term"
-    
+
     case Do(expr, body) => s"do { $expr; $body }"
-    
+
     case RefAddr(refType, address) => s"ref[$refType]@$address"
-    
+
     case NativeFunctionCall(function, args) => function.kind match {
-      case NativeCallable.Kind.Default => 
+      case NativeCallable.Kind.Default =>
         s"$function(${args.map(_.toString).mkString(", ")})"
-      case NativeCallable.Kind.Operator(symbol) => 
+      case NativeCallable.Kind.Operator(symbol) =>
         if args.length == 2 then s"(${args.head.toAtomString} $symbol ${args(1).toAtomString})"
         else if args.length == 1 then s"($symbol${args.head.toAtomString})"
         else s"$function(${args.map(_.toString).mkString(", ")})"
-      case NativeCallable.Kind.Function(name) => 
+      case NativeCallable.Kind.Function(name) =>
         s"$name(${args.map(_.toString).mkString(", ")})"
     }
-    
+
     case NativeProcedureCall(procedure, args) => {
       s"$procedure(${args.map(_.toString).mkString(", ")})"
     }
