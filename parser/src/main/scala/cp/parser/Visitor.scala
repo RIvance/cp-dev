@@ -45,6 +45,14 @@ class Visitor extends CpParserBaseVisitor[
     }
     RawProgram(defaultModule, mainExpr)
   }
+  
+  def visitConstraints(constraints: Seq[ConstraintContext]): Set[Constraint[ExprType]] = {
+    constraints.map {
+      case ctx: ConstraintDisjointContext => Constraint.Disjoint(ctx.target.getText, ctx.disjointness.visit)
+      case ctx: ConstraintSubtypeContext => Constraint.UpperBound(ctx.target.getText, ctx.supertype.visit)
+      case ctx: ConstraintSupertypeContext => Constraint.LowerBound(ctx.target.getText, ctx.subtype.visit)
+    }.toSet
+  }
 
   def visitDefinition(ctx: DefinitionContext): Definition = ctx match {
     case ctx: InterfaceDefinitionContext => {
@@ -55,7 +63,8 @@ class Visitor extends CpParserBaseVisitor[
       val sorts = ctx.`def`.sorts.asScala
       val params = ctx.`def`.params.visit
       val body = visitRecordType(ctx.`def`.body)
-      ??? // TODO
+      val constraints = visitConstraints(ctx.`def`.constraints.asScala.toSeq)
+      ??? // TODO: implement interface
     }
     case ctx: TypeDefinitionContext => {
       val name = ctx.`def`.name.getText
@@ -65,7 +74,8 @@ class Visitor extends CpParserBaseVisitor[
       val fullType: ExprType = typeParams.foldRight(ty) { 
         (param, acc: ExprType) => ExprType.Forall(param, acc)
       }.withSpan(ctx)
-      Definition.TypeDef(name, fullType).withSpan(ctx.span)
+      val constraints = visitConstraints(ctx.`def`.constraints.asScala.toSeq)
+      Definition.TypeDef(name, fullType, constraints).withSpan(ctx.span)
     }
     case ctx: TermDefinitionContext => {
       val name = ctx.`def`.name.getText
@@ -76,7 +86,8 @@ class Visitor extends CpParserBaseVisitor[
       val func = if params.isEmpty then value else value.foldLambda(params)
       // Apply type parameters if any
       val typedFunc = if typeParams.isEmpty then func else func.foldTypeLambda(typeParams)
-      Definition.TermDef(name, typedFunc).withSpan(ctx.span)
+      val constraints = visitConstraints(ctx.`def`.constraints.asScala.toSeq)
+      Definition.TermDef(name, typedFunc, constraints).withSpan(ctx.span)
     }
     case ctx: SubmoduleDefinitionContext => {
       val name = ctx.`def`.name.getText

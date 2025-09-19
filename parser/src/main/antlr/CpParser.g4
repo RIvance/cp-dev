@@ -56,19 +56,19 @@ definition
 
 interfaceDef
     :   Interface name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
-            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            (Where constraints+=constraint (Comma constraints+=constraint)*)?
             (Extends extends=typeWithSort)? body=recordType
     ;
 
 typeDef
     :   Type name=typeNameDecl (Less sorts+=typeNameDecl (Comma sorts+=typeNameDecl)* Greater)? params=typeParamList?
-            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            (Where constraints+=constraint (Comma constraints+=constraint)*)?
             Assign body=type
     ;
 
 termDef
     :   Def? name=termNameDecl typeParams=typeParamList? params+=termParamGroup* (Colon ty=type)?
-            (Where disjoints+=disjointConstraint (Comma disjoints+=disjointConstraint)*)?
+            (Where constraints+=constraint (Comma constraints+=constraint)*)?
             Assign body=typedExpr
     ;
 
@@ -77,8 +77,10 @@ submoduleDef
     ;
 
 // `where T * U` means T is disjoint from U
-disjointConstraint
-    :   ty=typeNameDecl Asterisk disjointness=type
+constraint
+    :   target=typeNameDecl Asterisk disjointness=type  # constraintDisjoint
+    |   target=typeNameDecl Subtype supertype=type      # constraintSubtype
+    |   target=typeNameDecl Supertype subtype=type      # constraintSupertype
     ;
 
 type

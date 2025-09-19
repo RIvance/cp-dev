@@ -6,17 +6,17 @@ import scala.annotation.tailrec
 
 enum Constraint[T <: Type | ExprType] {
   
-  case DisjointConstraint(
+  case Disjoint(
     override val targetTypeParam: String,
     disjoint: T,
   )
 
-  case UpperBoundConstraint(
+  case UpperBound(
     override val targetTypeParam: String,
     upperBound: T,
   )
   
-  case LowerBoundConstraint(
+  case LowerBound(
     override val targetTypeParam: String,
     lowerBound: T,
   )
@@ -24,27 +24,27 @@ enum Constraint[T <: Type | ExprType] {
   def targetTypeParam: String
   
   def map[U <: Type | ExprType](f: T => U): Constraint[U] = this match {
-    case Constraint.DisjointConstraint(param, disjoint) =>
-      Constraint.DisjointConstraint(param, f(disjoint))
-    case Constraint.UpperBoundConstraint(param, upperBound) =>
-      Constraint.UpperBoundConstraint(param, f(upperBound))
-    case Constraint.LowerBoundConstraint(param, lowerBound) =>
-      Constraint.LowerBoundConstraint(param, f(lowerBound))
+    case Constraint.Disjoint(param, disjoint) =>
+      Constraint.Disjoint(param, f(disjoint))
+    case Constraint.UpperBound(param, upperBound) =>
+      Constraint.UpperBound(param, f(upperBound))
+    case Constraint.LowerBound(param, lowerBound) =>
+      Constraint.LowerBound(param, f(lowerBound))
   }
   
   def subject: T = this match {
-    case Constraint.DisjointConstraint(_, disjoint) => disjoint
-    case Constraint.UpperBoundConstraint(_, upperBound) => upperBound
-    case Constraint.LowerBoundConstraint(_, lowerBound) => lowerBound
+    case Constraint.Disjoint(_, disjoint) => disjoint
+    case Constraint.UpperBound(_, upperBound) => upperBound
+    case Constraint.LowerBound(_, lowerBound) => lowerBound
   }
   
   def rename(paramName: String): Constraint[T] = this match {
-    case Constraint.DisjointConstraint(_, disjoint) =>
-      Constraint.DisjointConstraint(paramName, disjoint)
-    case Constraint.UpperBoundConstraint(_, upperBound) =>
-      Constraint.UpperBoundConstraint(paramName, upperBound)
-    case Constraint.LowerBoundConstraint(_, lowerBound) =>
-      Constraint.LowerBoundConstraint(paramName, lowerBound)
+    case Constraint.Disjoint(_, disjoint) =>
+      Constraint.Disjoint(paramName, disjoint)
+    case Constraint.UpperBound(_, upperBound) =>
+      Constraint.UpperBound(paramName, upperBound)
+    case Constraint.LowerBound(_, lowerBound) =>
+      Constraint.LowerBound(paramName, lowerBound)
   }
 }
 
@@ -56,24 +56,24 @@ extension (constraint: Constraint[ExprType]) {
 
 extension (constraint: Constraint[Type]) {
   def verify(ty: Type)(using env: Environment): Boolean = constraint match {
-    case Constraint.DisjointConstraint(_, disjoint) => ty.disjointWith(disjoint)
-    case Constraint.UpperBoundConstraint(_, upperBound) => ty <:< upperBound
-    case Constraint.LowerBoundConstraint(_, lowerBound) => lowerBound <:< ty
+    case Constraint.Disjoint(_, disjoint) => ty.disjointWith(disjoint)
+    case Constraint.UpperBound(_, upperBound) => ty <:< upperBound
+    case Constraint.LowerBound(_, lowerBound) => lowerBound <:< ty
   }
   
   def unify(otherConstraint: Constraint[Type])(using env: Environment): Boolean = {
     (constraint, otherConstraint) match {
       case (
-        Constraint.DisjointConstraint(_, disjoint1),
-        Constraint.DisjointConstraint(_, disjoint2),
+        Constraint.Disjoint(_, disjoint1),
+        Constraint.Disjoint(_, disjoint2),
       ) => disjoint1 == disjoint2
       case (
-        Constraint.UpperBoundConstraint(_, upperBound1),
-        Constraint.UpperBoundConstraint(_, upperBound2),
+        Constraint.UpperBound(_, upperBound1),
+        Constraint.UpperBound(_, upperBound2),
       ) => upperBound1 unify upperBound2
       case (
-        Constraint.LowerBoundConstraint(_, lowerBound1),
-        Constraint.LowerBoundConstraint(_, lowerBound2),
+        Constraint.LowerBound(_, lowerBound1),
+        Constraint.LowerBound(_, lowerBound2),
       ) => lowerBound1 unify lowerBound2
       case _ => false
     }
@@ -82,16 +82,16 @@ extension (constraint: Constraint[Type]) {
   infix def weakerThan(otherConstraint: Constraint[Type])(using env: Environment): Boolean = {
     (constraint, otherConstraint) match {
       case (
-        Constraint.DisjointConstraint(_, disjoint1),
-        Constraint.DisjointConstraint(_, disjoint2),
+        Constraint.Disjoint(_, disjoint1),
+        Constraint.Disjoint(_, disjoint2),
       ) => disjoint1 <:< disjoint2
       case (
-        Constraint.UpperBoundConstraint(_, upperBound1),
-        Constraint.UpperBoundConstraint(_, upperBound2),
+        Constraint.UpperBound(_, upperBound1),
+        Constraint.UpperBound(_, upperBound2),
       ) => upperBound2 <:< upperBound1
       case (
-        Constraint.LowerBoundConstraint(_, lowerBound1),
-        Constraint.LowerBoundConstraint(_, lowerBound2),
+        Constraint.LowerBound(_, lowerBound1),
+        Constraint.LowerBound(_, lowerBound2),
       ) => lowerBound1 <:< lowerBound2
       case _ => false
     }
@@ -104,26 +104,26 @@ extension (constraint: Constraint[Type]) {
     // TODO: double check this logic
     (constraint, otherConstraint) match {
       case (
-        Constraint.DisjointConstraint(_, disjoint1),
-        Constraint.DisjointConstraint(_, disjoint2),
+        Constraint.Disjoint(_, disjoint1),
+        Constraint.Disjoint(_, disjoint2),
       ) => false
-      case (_, Constraint.DisjointConstraint(_, _)) => otherConstraint.disjointWith(constraint)
+      case (_, Constraint.Disjoint(_, _)) => otherConstraint.disjointWith(constraint)
       case (
-        Constraint.DisjointConstraint(_, disjoint),
-        Constraint.UpperBoundConstraint(_, upperBound),
+        Constraint.Disjoint(_, disjoint),
+        Constraint.UpperBound(_, upperBound),
       ) => disjoint <:< upperBound
       case (
-        Constraint.DisjointConstraint(_, disjoint),
-        Constraint.LowerBoundConstraint(_, lowerBound),
+        Constraint.Disjoint(_, disjoint),
+        Constraint.LowerBound(_, lowerBound),
       ) => lowerBound <:< disjoint
       // If one's upper bound is lower than another's lower bound, they are disjoint
       case (
-        Constraint.UpperBoundConstraint(_, upperBound),
-        Constraint.LowerBoundConstraint(_, lowerBound),
+        Constraint.UpperBound(_, upperBound),
+        Constraint.LowerBound(_, lowerBound),
       ) => upperBound <:< lowerBound
       case (
-        Constraint.LowerBoundConstraint(_, lowerBound),
-        Constraint.UpperBoundConstraint(_, upperBound), 
+        Constraint.LowerBound(_, lowerBound),
+        Constraint.UpperBound(_, upperBound), 
       ) => upperBound <:< lowerBound
       case _ => false
     }
@@ -136,7 +136,7 @@ extension (constraints: Set[Constraint[Type]]) {
     var lowerBound: Option[Type] = None
     var disjoint: Option[Type] = None
     constraints.foreach {
-      case Constraint.UpperBoundConstraint(_, upperbound) => {
+      case Constraint.UpperBound(_, upperbound) => {
         upperBound = upperBound match {
           case Some(existingUpperbound) => Some(
             if existingUpperbound <:< upperbound then existingUpperbound
@@ -146,7 +146,7 @@ extension (constraints: Set[Constraint[Type]]) {
           case None => Some(upperbound.normalize)
         }
       }
-      case Constraint.LowerBoundConstraint(_, lowerbound) => {
+      case Constraint.LowerBound(_, lowerbound) => {
         lowerBound = lowerBound match {
           case Some(existingLowerbound) => Some(
             if existingLowerbound <:< lowerbound then lowerbound
@@ -156,7 +156,7 @@ extension (constraints: Set[Constraint[Type]]) {
           case None => Some(lowerbound.normalize)
         }
       }
-      case Constraint.DisjointConstraint(_, disjointType) => {
+      case Constraint.Disjoint(_, disjointType) => {
         disjoint = disjoint match {
           case Some(existingDisjoint) => Some(
             if existingDisjoint <:< disjointType then existingDisjoint
@@ -168,9 +168,9 @@ extension (constraints: Set[Constraint[Type]]) {
       }
     }
     Set(
-      upperBound.map(Constraint.UpperBoundConstraint("$T", _)),
-      lowerBound.map(Constraint.LowerBoundConstraint("$T", _)),
-      disjoint.map(Constraint.DisjointConstraint("$T", _)),
+      upperBound.map(Constraint.UpperBound("$T", _)),
+      lowerBound.map(Constraint.LowerBound("$T", _)),
+      disjoint.map(Constraint.Disjoint("$T", _)),
     ).flatten
   }
 }

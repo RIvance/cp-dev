@@ -254,6 +254,10 @@ Subtype
     :   '<:'
     ;
 
+Supertype
+    :   ':>'
+    ;
+
 Intersect
     :   '&'
     ;

@@ -113,7 +113,12 @@ enum Type {
       }
       
       case (Primitive(ty1), Primitive(ty2)) => ty1 == ty2
-      
+
+      case (Primitive(LiteralType.UnitType), Tuple(Nil)) => true
+      case (Tuple(Nil), Primitive(LiteralType.UnitType)) => true
+      case (Primitive(LiteralType.UnitType), Record(fields)) if fields.isEmpty => true
+      case (Record(fields), Primitive(LiteralType.UnitType)) if fields.isEmpty => true
+
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         env.withFreshTypeVar { (freshVar, newEnv) =>
           given Environment = newEnv
@@ -211,24 +216,24 @@ enum Type {
             // Since parameter are contravariant, the constraints on `this` should be weaker than those on `that`
             // Upperbounds: for all i and j, Ui1 <: Uj2
             constraints1.forall {
-              case Constraint.UpperBoundConstraint(_, upper1) => constraints2.exists {
-                case Constraint.UpperBoundConstraint(_, upper2) => upper1 <:< upper2
+              case Constraint.UpperBound(_, upper1) => constraints2.exists {
+                case Constraint.UpperBound(_, upper2) => upper1 <:< upper2
                 case _ => false
               }
               case _ => true
             }
             // Lowerbounds: for all i and j, Li2 <: Li1
             && constraints2.forall {
-              case Constraint.LowerBoundConstraint(_, lower2) => constraints1.exists {
-                case Constraint.LowerBoundConstraint(_, lower1) => lower2 <:< lower1
+              case Constraint.LowerBound(_, lower2) => constraints1.exists {
+                case Constraint.LowerBound(_, lower1) => lower2 <:< lower1
                 case _ => false
               }
               case _ => true
             }
             // Disjointness: for all Dj2 there exists Di1, Di1 <: Dj2
             && constraints2.forall {
-              case Constraint.DisjointConstraint(_, disjoint2) => constraints1.exists {
-                case Constraint.DisjointConstraint(_, disjoint1) => disjoint1 <:< disjoint2
+              case Constraint.Disjoint(_, disjoint2) => constraints1.exists {
+                case Constraint.Disjoint(_, disjoint1) => disjoint1 <:< disjoint2
                 case _ => false
               }
               case _ => true
@@ -496,4 +501,5 @@ enum Type {
 object Type {
   lazy val top: Type = Primitive(LiteralType.TopType)
   lazy val bottom: Type = Primitive(LiteralType.BottomType)
+  lazy val unit: Type = Primitive(LiteralType.UnitType)
 }

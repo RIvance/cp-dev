@@ -130,10 +130,14 @@ enum Term {
     }
     
     case Record(fields) => {
-      Type.Record(fields.map { (name, term) => (name, term.infer) })
+      if fields.isEmpty then Type.unit
+      else Type.Record(fields.map { (name, term) => (name, term.infer) })
     }
     
-    case Tuple(elements) => Type.Tuple(elements.map(_.infer))
+    case Tuple(elements) => {
+      if elements.isEmpty then Type.unit 
+      else Type.Tuple(elements.map(_.infer))
+    }
     
     case Merge(_, _, _) => ???
     
@@ -472,8 +476,8 @@ enum Term {
     }
     
     case Tuple(elements) => {
-      val evaluatedElements = elements.map(_.eval)
-      Term.Tuple(evaluatedElements)
+      if elements.isEmpty then Term.Primitive(Literal.UnitValue)
+      else Term.Tuple(elements.map(_.eval))
     }
     
     case Merge(_, _, _) => ???
