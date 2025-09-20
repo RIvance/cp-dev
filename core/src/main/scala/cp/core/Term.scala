@@ -1,7 +1,8 @@
 package cp.core
 
-import scala.util.{Try, Success, Failure}
+import scala.util.{Failure, Success, Try}
 import cp.error.CoreErrorKind.*
+import cp.util.Recoverable
 
 enum Term {
   
@@ -461,7 +462,13 @@ enum Term {
             //  we can evaluate it to a primitive value.
             function.call(evaluatedArgs)
           } else {
-            // Otherwise, we just return a new partially applied native function call.
+            // Otherwise, typecheck existing args and return a new partially applied native function call.
+            args.zip(function.paramTypes).foreach { (arg, paramType) =>
+              val argType = arg.infer
+              if !(argType <:< paramType) then TypeNotMatch.raise {
+                s"Expected argument type: ${paramType}, but got: ${argType}"
+              }
+            }
             Term.NativeFunctionCall(function, evaluatedArgs)
           }
         case (Merge(left, right, MergeBias.Neutral), argEval, _) => {
@@ -469,8 +476,8 @@ enum Term {
           //  we can try to apply both branches to the argument.
           //  If one branch fails (e.g. due to type mismatch), we return the other branch's result.
           //  If both branches succeed, we return a merge of both results.
-          val leftApp = Try { Term.Apply(left, argEval).eval(using env)(using mode) }
-          val rightApp = Try { Term.Apply(right, argEval).eval(using env)(using mode) }
+          val leftApp = Recoverable { Term.Apply(left, argEval).eval(using env)(using mode) }
+          val rightApp = Recoverable { Term.Apply(right, argEval).eval(using env)(using mode) }
           (leftApp, rightApp) match {
             case (Success(l), Success(r)) => Term.Merge(l, r, MergeBias.Neutral)
             case (Success(l), Failure(_)) => l

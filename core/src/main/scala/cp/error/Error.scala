@@ -2,7 +2,9 @@ package cp.error
 
 import cp.util.SourceSpan
 
-trait SpannedError extends Exception {
+trait CpError extends Exception
+
+trait SpannedError extends CpError {
   def message: String
   def infoSpans: Map[SourceSpan, String]
 }
@@ -22,7 +24,7 @@ case class SingleSpanError(
   override def infoSpans: Map[SourceSpan, String] = Map(span -> info)
 }
 
-case class CoreError(kind: ErrorKind, info: String) extends Exception {
+case class CoreError(kind: ErrorKind, info: String) extends CpError {
   def withSpan(span: SourceSpan): SpannedError = {
     val spannedError = SingleSpanError(kind, info, span)
     spannedError.setStackTrace(this.getStackTrace)

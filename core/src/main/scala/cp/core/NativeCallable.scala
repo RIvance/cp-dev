@@ -1,5 +1,8 @@
 package cp.core
 
+import cp.error.CoreErrorKind
+import cp.error.CoreErrorKind.*
+
 trait NativeCallable {
   def returnType: Type
   def paramTypes: Seq[Type]
@@ -27,8 +30,8 @@ private sealed abstract class NativeCallableBase (
     // Verify argument types
     args.zip(paramTypes).foreach { case (arg, ty) =>
       val inferredType = arg.infer
-      if inferredType != ty then {
-        throw new IllegalArgumentException(s"Expected argument of type $ty, got $inferredType")
+      if !(inferredType <:< ty) then TypeNotMatch.raise {
+        s"Expected argument of type $ty, got $inferredType"
       }
     }
     implementation(args)
