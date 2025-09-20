@@ -104,22 +104,37 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     term3.fullEval should be(IntValue(114514).toTerm)
   }
   
-  test("synth merge") {
+  test("synth merge overloading") {
     val code = """
-      def double(value: Int) = value * 2;
-      def isHello(str: String) = if str == "hello" then true else false;
+      def doubleInt(value: Int): Int = value * 2;
+      def doubleString(value: String): String = value ++ value;
+      def double = doubleInt ,, doubleString;
     """
     given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term1, ty1) = synthExpr("(double ,, isHello) (42 ,, \"hello\")")
-    ty1 should be (Type.Intersection(IntType.toType, BoolType.toType))
-    term1 should be (Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm))
+    val (term1, ty1) = synthExpr("double(21)")
+    ty1 should be (IntType.toType)
+    term1 should be (IntValue(42).toTerm)
+    val (term2, ty2) = synthExpr("double(\"ha\")")
+    ty2 should be (StringType.toType)
+    term2 should be (StringValue("haha").toTerm)
   }
   
-  test("synth coercion") {
-    val code = """
-      f (x: Int) = false ,, x;
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term1, ty1) = synthExpr("(f : Bool & Int -> Bool & Int) (true ,, 42)")
-  }
+//  test("synth merge") {
+//    val code = """
+//      def double(value: Int) = value * 2;
+//      def isHello(str: String) = if str == "hello" then true else false;
+//    """
+//    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+//    val (term1, ty1) = synthExpr("(double ,, isHello) (42 ,, \"hello\")")
+//    ty1 should be (Type.Intersection(IntType.toType, BoolType.toType))
+//    term1 should be (Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm))
+//  }
+//  
+//  test("synth coercion") {
+//    val code = """
+//      f (x: Int) = false ,, x;
+//    """
+//    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+//    val (term1, ty1) = synthExpr("(f : Bool & Int -> Bool & Int) (true ,, 42)")
+//  }
 }

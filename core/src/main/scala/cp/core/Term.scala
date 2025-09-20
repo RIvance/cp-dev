@@ -1,5 +1,6 @@
 package cp.core
 
+import scala.util.{Try, Success, Failure}
 import cp.error.CoreErrorKind.*
 
 enum Term {
@@ -85,6 +86,15 @@ enum Term {
         if !(argType <:< paramType) then TypeNotMatch.raise {
           s"Expected argument type: ${paramType}, but got: ${argType}"
         } else returnType
+      case fnType@Type.Intersection(_, _) => {
+        val argType = arg.infer
+        fnType.testApplicationReturn(argType) match {
+          case Some(returnType) => returnType
+          case None => TypeNotMatch.raise {
+            s"Function type ${fnType} cannot be applied to argument type ${argType}"
+          }
+        }
+      }
       // TODO: Figure out whether we also need to handle trait (coercive) application here.
       case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
     }
@@ -95,6 +105,15 @@ enum Term {
         if !(argType <:< paramType) then TypeNotMatch.raise {
           s"Expected argument type: ${paramType}, but got: ${argType}"
         } else returnType
+      case fnType@Type.Intersection(_, _) => {
+        val argType = arg.infer
+        fnType.testApplicationReturn(argType) match {
+          case Some(returnType) => returnType
+          case None => TypeNotMatch.raise {
+            s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
+          }
+        }
+      }
       case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
     }
     
@@ -216,6 +235,19 @@ enum Term {
         if !(returnType <:< expectedType) then TypeNotMatch.raise {
           s"Function return type ${returnType} does not match expected type ${expectedType}"
         } else arg.check(paramType)
+      case fnType@Type.Intersection(_, _) => {
+        val argType: Type = arg.infer
+        // Try to find a function type in the intersection that can produce expectedType
+        fnType.testApplicationReturn(argType) match {
+          case Some(returnType) =>
+            if !(returnType <:< expectedType) then TypeNotMatch.raise {
+              s"Function return type ${returnType} does not match expected type ${expectedType}"
+            } else true
+          case None => TypeNotMatch.raise {
+            s"Function type ${fnType} cannot be applied to argument type ${argType}"
+          }
+        }
+      }
       case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
     }
     
@@ -224,6 +256,19 @@ enum Term {
         if !(returnType <:< expectedType) then TypeNotMatch.raise {
           s"Coercion return type ${returnType} does not match expected type ${expectedType}"
         } else arg.check(paramType)
+      case fnType@Type.Intersection(_, _) => {
+        // Try to find a coercion function type in the intersection that can produce expectedType
+        val argType: Type = arg.infer
+        fnType.testApplicationReturn(argType) match {
+          case Some(returnType) =>
+            if !(returnType <:< expectedType) then TypeNotMatch.raise {
+              s"Coercion return type ${returnType} does not match expected type ${expectedType}"
+            } else true
+          case None => TypeNotMatch.raise {
+            s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
+          }
+        }
+      }
       case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
     }
     
@@ -419,6 +464,22 @@ enum Term {
             // Otherwise, we just return a new partially applied native function call.
             Term.NativeFunctionCall(function, evaluatedArgs)
           }
+        case (Merge(left, right, MergeBias.Neutral), argEval, _) => {
+          // Special case: when the function is a merge of two functions,
+          //  we can try to apply both branches to the argument.
+          //  If one branch fails (e.g. due to type mismatch), we return the other branch's result.
+          //  If both branches succeed, we return a merge of both results.
+          val leftApp = Try { Term.Apply(left, argEval).eval(using env)(using mode) }
+          val rightApp = Try { Term.Apply(right, argEval).eval(using env)(using mode) }
+          (leftApp, rightApp) match {
+            case (Success(l), Success(r)) => Term.Merge(l, r, MergeBias.Neutral)
+            case (Success(l), Failure(_)) => l
+            case (Failure(_), Success(r)) => r
+            case (Failure(_), Failure(_)) => TypeNotMatch.raise {
+              s"Both branches of merge function failed to apply to argument: $argEval"
+            }
+          }
+        }
         case _ => Term.Apply(funcEval, argEval)
       }
     }
@@ -510,7 +571,36 @@ enum Term {
       else Term.Tuple(elements.map(_.eval))
     }
     
-    case Merge(_, _, _) => ???
+    case Merge(left, right, MergeBias.Left) => {
+      Merge(left, Term.Diff(right, left), MergeBias.Neutral).eval
+    }
+    
+    case Merge(left, right, MergeBias.Right) => {
+      Merge(Term.Diff(left, right), right, MergeBias.Neutral).eval
+    }
+    
+    case Merge(left, right, MergeBias.Neutral) => {
+      val leftEval: Term = left.eval
+      val rightEval: Term = right.eval
+      (leftEval, rightEval) match {
+        case (Record(leftFields), Record(rightFields)) => {
+          // Merging two records
+          val commonFields = leftFields.keySet.intersect(rightFields.keySet)
+          if commonFields.nonEmpty then TypeNotMatch.raise {
+            s"Cannot merge two records with overlapping fields: ${commonFields.mkString(", ")}"
+          }
+          Term.Record(leftFields ++ rightFields)
+        }
+        case (Tuple(leftElements), Tuple(rightElements)) if leftElements.length == rightElements.length => {
+          val mergedElements = leftElements.zip(rightElements).map { (l, r) =>
+            Term.Merge(l, r, MergeBias.Neutral).eval
+          }
+          Term.Tuple(mergedElements)
+        }
+        // TODO: merge two traits (coercions)
+        case _ => Term.Merge(leftEval, rightEval, MergeBias.Neutral)
+      }
+    }
     
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval

@@ -115,7 +115,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
 
     case ExprTerm.Apply(fn, args) => {
-      val (fnTerm, fnType) = fn.synthesize
+      val (fnTerm: Term, fnType: Type) = fn.synthesize
       val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
         case ((accFnTerm: Term, accFnType: Type), arg) => {
           accFnType match {
@@ -127,6 +127,18 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 s"Expected argument type: $domain, found: $argType"
               }
               (Term.Apply(accFnTerm, argTerm), codomain)
+            }
+            case Type.Intersection(_, _) => {
+              val (argTerm: Term, argType: Type) = arg.synthesize
+              fnType.testApplicationReturn(argType) match {
+                case Some(returnType) =>
+                  if !argTerm.check(argType) then TypeNotMatch.raise {
+                    s"Expected argument type: $argType, found: $argType"
+                  } else (Term.Apply(accFnTerm, argTerm), returnType)
+                case None => TypeNotMatch.raise {
+                  s"Function application type mismatch: $accFnType cannot accept argument of type $argType"
+                }
+              }
             }
             case _ => TypeNotMatch.raise {
               s"Function application on a non-function type: $accFnType"

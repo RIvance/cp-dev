@@ -8,6 +8,7 @@ object Prelude {
   lazy val environment: Environment = Environment.builder.buildWith { builder =>
     builder.termVar("+", NativeImplementations.add.toTerm)
     builder.termVar("-", NativeImplementations.sub.toTerm)
+    builder.termVar("*", NativeImplementations.mul.toTerm)
     builder.termVar("++", NativeImplementations.concat.toTerm)
   }
   
@@ -34,6 +35,18 @@ object Prelude {
           IntValue(a - b).toTerm
         case args => 
           throw new IllegalArgumentException(s"Invalid arguments for -: $args")
+      }
+    )
+    
+    lazy val mul: NativeFunction = NativeFunction(
+      returnType = IntType.toType,
+      paramTypes = Seq(IntType.toType, IntType.toType),
+      kind = NativeCallable.Kind.Operator("*"),
+      implementation = {
+        case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+          IntValue(a * b).toTerm
+        case args => 
+          throw new IllegalArgumentException(s"Invalid arguments for *: $args")
       }
     )
     

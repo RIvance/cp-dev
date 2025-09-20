@@ -188,12 +188,12 @@ enum Type {
 
   @targetName("subtype")
   infix def <:< (that: Type)(using env: Environment): Boolean = {
-    
+
     if this == that then return true
-    
+
     val normThis = this.normalize
     val normThat = that.normalize
-    
+
     if normThis unify normThat then return true
 
     (normThis, normThat) match {
@@ -217,7 +217,7 @@ enum Type {
         env.withFreshTypeVar { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) <:< codomain2.subst(param2, freshVar) && {
-            // Since parameter are contravariant, the constraints on `this` should be 
+            // Since parameter are contravariant, the constraints on `this` should be
             //  weaker (i.e., include more elements, or `:>`) than those on `that`
             // Upperbounds: for all i and j, Ui1 <: Uj2
             constraints1.forall {
@@ -378,7 +378,7 @@ enum Type {
     case Primitive(TopType) => true
     case _ => false
   }
-  
+
   private def isBottomLike: Boolean = this match {
     case Primitive(BottomType) => true
     case Arrow(domain, _) => domain.isBottomLike
@@ -403,7 +403,7 @@ enum Type {
     case (other, Var(name)) => {
       env.typeVars.get(name).forall(other.disjointWith)
     }
-    
+
     // TODO: Figure out why this case returns true in the previous implementation
     case (left, right) if left.isTop || right.isTop => false
     case (left, right) if left.isBottomLike || right.isBottomLike => true
@@ -455,9 +455,9 @@ enum Type {
     
     case (left, right) => left != right
   }
-  
+
   infix def diff(that: Type)(using env: Environment): Type = (this, that) match {
-      
+
     case (left, right) if left <:< right => Type.bottom
     case (left, right) if right.isTop => Type.bottom
     // In fact, we cannot "dig a hole" in top type (universal set)
@@ -468,12 +468,12 @@ enum Type {
       val (left1, left2) = left.split.get
       left1.diff(right).merge(left2.diff(right)).normalize
     }
-    
+
     // Still, why does the original implementation return top here???
     case (Primitive(BottomType), Primitive(BottomType)) => Type.bottom
     case (Primitive(BottomType), _) => Type.bottom
     case (_, Primitive(BottomType)) => this.normalize
-    
+
     case (Record(fields1), Record(fields2)) => {
       val commonFields = fields1.keySet.intersect(fields2.keySet)
       if commonFields.isEmpty then this.normalize else {
@@ -484,7 +484,7 @@ enum Type {
         else Record(fields1 -- commonFields ++ diffFields).normalize
       }
     }
-    
+
     case (Tuple(elements1), Tuple(elements2)) => {
       if elements1.length != elements2.length then this else {
         val diffElements = elements1.zip(elements2).map { case (ty1, ty2) => ty1.diff(ty2).normalize }
@@ -499,7 +499,7 @@ enum Type {
     //  However, this is correct but not precise when domain1 and domain2 are not disjoint
     //  as in current implementation, we don't have a way to represent such type
     //  (we cannot "dig a hole" in the domain type)
-    // We might need a better representation of such type in the future if we 
+    // We might need a better representation of such type in the future if we
     //  want to do reasoning on the type system.
     // But for now, this should be fine for a practical implementation.
     case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
@@ -529,7 +529,7 @@ enum Type {
 
     case (Diff(left1, left2), right) => left1.diff(left2).diff(right).normalize
     case (left, Diff(right1, right2)) => left.diff(right1).merge(left.diff(right2)).normalize
-    
+
     case (_: Fixpoint, _) | (_, _: Fixpoint) => UnsupportedFeature.raise {
       s"Diff operation is not supported for recursive types: ${this} \\ ${that}"
     }
@@ -540,7 +540,7 @@ enum Type {
 
     case (left, right) => left.normalize
   }
-  
+
   infix def merge(that: Type)(using env: Environment): Type = (this, that) match {
     case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) 
       if domain1 unify domain2 => 
@@ -591,6 +591,32 @@ enum Type {
         (Forall(param, left, constraints), Forall(param, right, constraints))
       }
     }
+    case _ => None
+  }
+  
+  def testApplicationReturn(argType: Type)(using env: Environment): Option[Type] = this match {
+    
+    case Arrow(domain, codomain) => {
+      if argType <:< domain then Some(codomain) else None
+    }
+    
+    case Trait(domain, codomain) => {
+      if argType <:< domain then Some(codomain) else None
+    }
+    
+    case Intersection(lhs, rhs) => {
+      val lhsResult = lhs.testApplicationReturn(argType)
+      val rhsResult = rhs.testApplicationReturn(argType)
+      (lhsResult, rhsResult) match {
+        case (Some(l), Some(r)) => OverloadingAmbiguous.raise {
+          s"Ambiguous application: both ${lhs} and ${rhs} can be applied to argument of type ${argType}"
+        }
+        case (Some(l), None) => Some(l)
+        case (None, Some(r)) => Some(r)
+        case (None, None) => None
+      }
+    }
+    
     case _ => None
   }
   
