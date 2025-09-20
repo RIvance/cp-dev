@@ -33,6 +33,8 @@ enum Term {
   
   case Merge(left: Term, right: Term, bias: MergeBias = MergeBias.Neutral)
   
+  case Diff(left: Term, right: Term)
+  
   case IfThenElse(condition: Term, thenBranch: Term, elseBranch: Term)
   
   // case Match(scrutinee: Term, clauses: List[Clause])
@@ -139,7 +141,17 @@ enum Term {
       else Type.Tuple(elements.map(_.infer))
     }
     
-    case Merge(_, _, _) => ???
+    case Merge(left, right, MergeBias.Left) => {
+      Merge(left, Term.Diff(right, left), MergeBias.Neutral).infer
+    }
+    
+    case Merge(left, right, MergeBias.Right) => {
+      Merge(Term.Diff(left, right), right, MergeBias.Neutral).infer
+    }
+    
+    case Merge(left, right, MergeBias.Neutral) => left.infer merge right.infer
+
+    case Diff(left, right) => left.infer diff right.infer
     
     case IfThenElse(_, thenBranch, elseBranch) => {
       val thenType = thenBranch.infer
@@ -311,11 +323,29 @@ enum Term {
         }
       case other => TypeNotMatch.raise(s"Expected tuple type, but got: ${other}")
     }
+
+    case Merge(lhs, rhs, MergeBias.Left) => {
+      Merge(lhs, Term.Diff(rhs, lhs), MergeBias.Neutral).check(expectedType)
+    }
     
-    case Merge(_, _, _) => ???
-    case IfThenElse(_, _, _) => ???
+    case Merge(lhs, rhs, MergeBias.Right) => {
+      Merge(Term.Diff(lhs, rhs), rhs, MergeBias.Neutral).check(expectedType)
+    }
+    
+    case Merge(left, right, MergeBias.Neutral) => {
+      val leftType = left.infer
+      val rightType = right.infer
+      leftType.merge(rightType) <:< expectedType
+    }
+    
+    case IfThenElse(_, thenBranch, elseBranch) => {
+      thenBranch.check(expectedType) && elseBranch.check(expectedType)
+    }
+    
     case ArrayLiteral(_) => ???
+    
     case FoldFixpoint(_, _) => ???
+    
     case UnfoldFixpoint(_, _) => ???
     
     case Do(_, body) => body.check(expectedType)

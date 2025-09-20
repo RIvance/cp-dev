@@ -173,4 +173,13 @@ extension (constraints: Set[Constraint[Type]]) {
       disjoint.map(Constraint.Disjoint("$T", _)),
     ).flatten
   }
+  
+  // TODO: We need to implement a more sophisticated algorithm to compute the intersection, union
+  //  and difference of constraints (especially difference), instead of just taking the union of the sets.
+  
+  def intersectWith(other: Set[Constraint[Type]])(using env: Environment): Set[Constraint[Type]] = ???
+  
+  def unionWith(other: Set[Constraint[Type]])(using env: Environment): Set[Constraint[Type]] = ???
+  
+  def diffWith(other: Set[Constraint[Type]])(using env: Environment): Set[Constraint[Type]] = ???
 }

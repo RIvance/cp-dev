@@ -1,15 +1,16 @@
 package cp.test
 
 import cp.ast.{CpLexer, CpParser}
-import cp.core.{Environment, Term, Type, EvalMode, Module}
+import cp.core.{Environment, EvalMode, Module, Term, Type}
 import cp.error.SpannedError
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.ExprTerm
 import cp.util.SourceSpan
 import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
+import org.scalatest.matchers.should
 
-trait TestExtension {
+trait TestExtension extends should.Matchers {
   
   extension (term: Term) def fullEval(using env: Environment): Term = {
     term.eval(using env)(using EvalMode.Full)
@@ -95,5 +96,28 @@ trait TestExtension {
         throw error
       }
     }
+  }
+  
+  extension (expr: String) {
+    protected infix def shouldEvalAs(expected: (Term, Type))(using env: Environment): Any = {
+      val (term, ty) = synthExpr(expr)
+      term should be (expected._1)
+      ty should be (expected._2)
+    }
+    
+    protected infix def shouldEvalAs(expected: Term)(using env: Environment): Any = {
+      val (term, _) = synthExpr(expr)
+      term should be (expected)
+    }
+    
+    protected infix def shouldHaveType(expected: Type)(using env: Environment): Any = {
+      // TODO: use `check`
+      val (_, ty) = synthExpr(expr)
+      ty should be (expected)
+    }
+  }
+  
+  protected def withIn(code: String)(f: Environment => Any): Unit = {
+    f(synthModule(code)(using Prelude.environment).toEnv)
   }
 }

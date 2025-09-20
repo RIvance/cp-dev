@@ -1,6 +1,7 @@
 package cp.core
 
 import cp.error.CoreErrorKind.*
+import cp.core.LiteralType.*
 
 import scala.annotation.targetName
 
@@ -114,10 +115,10 @@ enum Type {
       
       case (Primitive(ty1), Primitive(ty2)) => ty1 == ty2
 
-      case (Primitive(LiteralType.UnitType), Tuple(Nil)) => true
-      case (Tuple(Nil), Primitive(LiteralType.UnitType)) => true
-      case (Primitive(LiteralType.UnitType), Record(fields)) if fields.isEmpty => true
-      case (Record(fields), Primitive(LiteralType.UnitType)) if fields.isEmpty => true
+      case (Primitive(UnitType), Tuple(Nil)) => true
+      case (Tuple(Nil), Primitive(UnitType)) => true
+      case (Primitive(UnitType), Record(fields)) if fields.isEmpty => true
+      case (Record(fields), Primitive(UnitType)) if fields.isEmpty => true
 
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         env.withFreshTypeVar { (freshVar, newEnv) =>
@@ -187,15 +188,18 @@ enum Type {
 
   @targetName("subtype")
   infix def <:< (that: Type)(using env: Environment): Boolean = {
+    
+    if this == that then return true
+    
     val normThis = this.normalize
     val normThat = that.normalize
-
+    
     if normThis unify normThat then return true
 
     (normThis, normThat) match {
       
-      case (_, Primitive(LiteralType.TopType)) => true
-      case (Primitive(LiteralType.BottomType), _) => true
+      case (_, Primitive(TopType)) => true
+      case (Primitive(BottomType), _) => true
 
       case (Var(name), _) => {
         env.typeVars.get(name).exists(_.unify(normThat)) || normThis.unify(normThat)
@@ -213,7 +217,8 @@ enum Type {
         env.withFreshTypeVar { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) <:< codomain2.subst(param2, freshVar) && {
-            // Since parameter are contravariant, the constraints on `this` should be weaker than those on `that`
+            // Since parameter are contravariant, the constraints on `this` should be 
+            //  weaker (i.e., include more elements, or `:>`) than those on `that`
             // Upperbounds: for all i and j, Ui1 <: Uj2
             constraints1.forall {
               case Constraint.UpperBound(_, upper1) => constraints2.exists {
@@ -305,10 +310,10 @@ enum Type {
       val normalizedLhs = lhs.normalize
       val normalizedRhs = rhs.normalize
       (normalizedLhs, normalizedRhs) match {
-        case (Primitive(LiteralType.BottomType), _) => Primitive(LiteralType.BottomType)
-        case (_, Primitive(LiteralType.BottomType)) => Primitive(LiteralType.BottomType)
-        case (Primitive(LiteralType.TopType), right) => right
-        case (left, Primitive(LiteralType.TopType)) => left
+        case (Primitive(BottomType), _) => Primitive(BottomType)
+        case (_, Primitive(BottomType)) => Primitive(BottomType)
+        case (Primitive(TopType), right) => right
+        case (left, Primitive(TopType)) => left
         case _ if normalizedLhs == normalizedRhs => normalizedLhs
         case _ => Intersection(normalizedLhs, normalizedRhs)
       }
@@ -318,10 +323,10 @@ enum Type {
       val normalizedLhs = lhs.normalize
       val normalizedRhs = rhs.normalize
       (normalizedLhs, normalizedRhs) match {
-        case (Primitive(LiteralType.BottomType), right) => right
-        case (left, Primitive(LiteralType.BottomType)) => left
-        case (Primitive(LiteralType.TopType), _) => Primitive(LiteralType.TopType)
-        case (_, Primitive(LiteralType.TopType)) => Primitive(LiteralType.TopType)
+        case (Primitive(BottomType), right) => right
+        case (left, Primitive(BottomType)) => left
+        case (Primitive(TopType), _) => Primitive(TopType)
+        case (_, Primitive(TopType)) => Primitive(TopType)
         case _ if normalizedLhs == normalizedRhs => normalizedLhs
         case _ => Union(normalizedLhs, normalizedRhs)
       }
@@ -361,23 +366,28 @@ enum Type {
       val normalizedLhs = lhs.normalize
       val normalizedRhs = rhs.normalize
       (normalizedLhs, normalizedRhs) match {
-        case (left, Primitive(LiteralType.BottomType)) => left
-        case (Primitive(LiteralType.BottomType), _) => Primitive(LiteralType.BottomType)
-        case _ if normalizedLhs == normalizedRhs => Primitive(LiteralType.BottomType)
+        case (left, Primitive(BottomType)) => left
+        case (Primitive(BottomType), _) => Primitive(BottomType)
+        case _ if normalizedLhs == normalizedRhs => Primitive(BottomType)
         case _ => Diff(normalizedLhs, normalizedRhs)
       }
     }
   }
 
-  private def isTopLike: Boolean = this match {
-    case Primitive(LiteralType.TopType) => true
-    case Arrow(_, codomain) => codomain.isTopLike
-    case Intersection(left, right) => left.isTopLike && right.isTopLike
-    case Union(left, right) => left.isTopLike || right.isTopLike
-    case Record(fields) => fields.values.forall(_.isTopLike)
-    case Tuple(elements) => elements.forall(_.isTopLike)
-    case Forall(_, codomain, _) => codomain.isTopLike
-    case Fixpoint(_, body) => body.isTopLike
+  private def isTop: Boolean = this match {
+    case Primitive(TopType) => true
+    case _ => false
+  }
+  
+  private def isBottomLike: Boolean = this match {
+    case Primitive(BottomType) => true
+    case Arrow(domain, _) => domain.isBottomLike
+    case Intersection(left, right) => left.isBottomLike || right.isBottomLike
+    case Union(left, right) => left.isBottomLike && right.isBottomLike
+    case Record(fields) => fields.values.exists(_.isBottomLike)
+    case Tuple(elements) => elements.exists(_.isBottomLike)
+    case Forall(_, codomain, _) => codomain.isBottomLike
+    case Fixpoint(_, body) => body.isBottomLike
     case _ => false
   }
 
@@ -395,7 +405,8 @@ enum Type {
     }
     
     // TODO: Figure out why this case returns true in the previous implementation
-    case (left, right) if left.isTopLike || right.isTopLike => false
+    case (left, right) if left.isTop || right.isTop => false
+    case (left, right) if left.isBottomLike || right.isBottomLike => true
 
     case (Record(firstFields), Record(secondFields)) => {
       firstFields.forall { case (fieldName, fieldType) =>
@@ -430,7 +441,7 @@ enum Type {
       } then true else {
         // TODO: We need to check whether it's okay to use top type here
         // No disjointness constraints, we need to check the bodies
-        val disjoint = Primitive(LiteralType.TopType) // A type that is guaranteed to be disjoint with any other type
+        val disjoint = Primitive(TopType) // A type that is guaranteed to be disjoint with any other type
         env.withFreshTypeBinding(disjoint) { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) disjointWith codomain2.subst(param2, freshVar)
@@ -438,11 +449,149 @@ enum Type {
       }
     }
     
-    case (_, Type.Primitive(LiteralType.BottomType)) => false
+    case (_, Type.Primitive(BottomType)) => false
     
-    case (Type.Primitive(LiteralType.BottomType), _) => false
+    case (Type.Primitive(BottomType), _) => false
     
     case (left, right) => left != right
+  }
+  
+  infix def diff(that: Type)(using env: Environment): Type = (this, that) match {
+      
+    case (left, right) if left <:< right => Type.bottom
+    case (left, right) if right.isTop => Type.bottom
+    // In fact, we cannot "dig a hole" in top type (universal set)
+    //  so we just return top type here
+    case (left, right) if left.isTop => Type.top
+    case (left, right) if left unify right => Type.bottom
+    case (left, right) if left.split.isDefined => {
+      val (left1, left2) = left.split.get
+      left1.diff(right).merge(left2.diff(right)).normalize
+    }
+    
+    // Still, why does the original implementation return top here???
+    case (Primitive(BottomType), Primitive(BottomType)) => Type.bottom
+    case (Primitive(BottomType), _) => Type.bottom
+    case (_, Primitive(BottomType)) => this.normalize
+    
+    case (Record(fields1), Record(fields2)) => {
+      val commonFields = fields1.keySet.intersect(fields2.keySet)
+      if commonFields.isEmpty then this.normalize else {
+        val diffFields = commonFields.map { label =>
+          label -> fields1(label).diff(fields2(label)).normalize
+        }.filterNot { case (_, ty) => ty == Type.bottom }.toMap
+        if diffFields.isEmpty then Type.bottom
+        else Record(fields1 -- commonFields ++ diffFields).normalize
+      }
+    }
+    
+    case (Tuple(elements1), Tuple(elements2)) => {
+      if elements1.length != elements2.length then this else {
+        val diffElements = elements1.zip(elements2).map { case (ty1, ty2) => ty1.diff(ty2).normalize }
+        if diffElements.contains(Type.bottom) then Type.bottom
+        else Tuple(diffElements).normalize
+      }
+    }
+
+    // For function-like types:
+    // If lfs is a subtype of rfs, then lfs \ rfs = ⊥
+    // For other cases, we just simply return lfs
+    //  However, this is correct but not precise when domain1 and domain2 are not disjoint
+    //  as in current implementation, we don't have a way to represent such type
+    //  (we cannot "dig a hole" in the domain type)
+    // We might need a better representation of such type in the future if we 
+    //  want to do reasoning on the type system.
+    // But for now, this should be fine for a practical implementation.
+    case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
+      if (domain2 <:< domain1) && (codomain1 <:< codomain2) then Type.bottom else this.normalize
+    }
+
+    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) => {
+      if (domain2 <:< domain1) && (codomain1 <:< codomain2) then Type.bottom else this.normalize
+    }
+
+    case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
+      env.withFreshTypeVar { (freshVar, newEnv) =>
+        given Environment = newEnv
+        val codomainDiff = codomain1.subst(param1, freshVar).diff(codomain2.subst(param2, freshVar)).normalize
+        if constraints2.forall(_.verify(codomainDiff)) then this
+        else Forall(
+          param1,
+          codomainDiff.subst(freshVar.name, Type.Var(param1)).normalize,
+          // TODO: for constraints, we need to be more careful here
+          //  we should compute constraints1 \ constraints2 instead of just taking constraints1
+          //  but it's a bit tricky to define the difference of two sets of constraints
+          //  so for now, we just take constraints1 that are not unified with any constraints in constraints2
+          constraints1.filterNot { c1 => constraints2.exists(c2 => c1.unify(c2)) }.map(_.rename(param1))
+        ).normalize
+      }
+    }
+
+    case (Diff(left1, left2), right) => left1.diff(left2).diff(right).normalize
+    case (left, Diff(right1, right2)) => left.diff(right1).merge(left.diff(right2)).normalize
+    
+    case (_: Fixpoint, _) | (_, _: Fixpoint) => UnsupportedFeature.raise {
+      s"Diff operation is not supported for recursive types: ${this} \\ ${that}"
+    }
+
+    case (_: Ref, _) | (_, _: Ref) => UnsupportedFeature.raise {
+      s"Diff operation is not supported for reference types: ${this} \\ ${that}"
+    }
+
+    case (left, right) => left.normalize
+  }
+  
+  infix def merge(that: Type)(using env: Environment): Type = (this, that) match {
+    case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) 
+      if domain1 unify domain2 => 
+      Arrow(domain1, codomain1.merge(codomain2).normalize)
+    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) 
+      if domain1 unify domain2 => 
+      Trait(domain1, codomain1.merge(codomain2).normalize)
+    case (Record(fields1), Record(fields2)) 
+      if fields1.keySet == fields2.keySet =>
+      Record(fields1.map { case (label, ty1) => label -> ty1.merge(fields2(label)).normalize })
+    case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
+      env.withFreshTypeVar { (freshVar, newEnv) =>
+        given Environment = newEnv
+        Forall(
+          freshVar.name,
+          codomain1.subst(param1, freshVar).merge(codomain2.subst(param2, freshVar)).normalize,
+          (constraints1 ++ constraints2).compact.map(_.rename(freshVar.name))
+        )
+      }
+    }
+    case (left, right) => Intersection(left, right)
+  }
+  
+  def split: Option[(Type, Type)] = this match {
+    case Intersection(lhs, rhs) => Some((lhs, rhs))
+    case Arrow(domain, codomain) => codomain.split match {
+      case Some((left, right)) => Some((Arrow(domain, left), Arrow(domain, right)))
+      case None => None
+    }
+    case Record(fields) => {
+      val splitFields = fields.map { case (label, ty) => label -> ty.split }
+      if splitFields.exists(_._2.isEmpty) then None else {
+        val leftFields = splitFields.map { (label, field) => label -> field.get._1 }
+        val rightFields = splitFields.map { (label, field) => label -> field.get._2 }
+        Some((Record(leftFields), Record(rightFields)))
+      }
+    }
+    case Tuple(elements) => {
+      val splitElements = elements.map(_.split)
+      if splitElements.exists(_.isEmpty) then None else {
+        val leftElements = splitElements.map(_.get._1)
+        val rightElements = splitElements.map(_.get._2)
+        Some((Tuple(leftElements), Tuple(rightElements)))
+      }
+    }
+    case Forall(param, codomain, constraints) => {
+      codomain.split.map { case (left, right) =>
+        (Forall(param, left, constraints), Forall(param, right, constraints))
+      }
+    }
+    case _ => None
   }
   
   // Add parentheses where necessary to ensure correct parsing.
@@ -499,7 +648,7 @@ enum Type {
 }
 
 object Type {
-  lazy val top: Type = Primitive(LiteralType.TopType)
-  lazy val bottom: Type = Primitive(LiteralType.BottomType)
-  lazy val unit: Type = Primitive(LiteralType.UnitType)
+  lazy val top: Type = Primitive(TopType)
+  lazy val bottom: Type = Primitive(BottomType)
+  lazy val unit: Type = Primitive(UnitType)
 }

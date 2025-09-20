@@ -109,10 +109,8 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Typed(expr, expectedTypeExpr) => {
       val (term, ty) = expr.synthesize
       val expectedType = expectedTypeExpr.synthesize
-      if !(ty <:< expectedType) then {
-        TypeNotMatch.raise {
-          s"Expected type: $expectedType, found: $ty"
-        }
+      if !(ty <:< expectedType) then TypeNotMatch.raise {
+        s"Expected type: $expectedType, found: $ty"
       } else (term, ty)
     }
 
@@ -392,7 +390,26 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Forward(_, _) => ???
     case ExprTerm.Exclude(_, _) => ???
     case ExprTerm.Remove(_, _) => ???
-    case ExprTerm.Diff(_, _) => ???
+    
+    case ExprTerm.Diff(left, right) => {
+      val (leftTerm, leftType) = left.synthesize
+      val (_, rightType) = right.synthesize
+      (leftType, rightType) match {
+        case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
+          // trait [self: A] { a } \ trait [self: B] { b }  ==  trait [self: A \ B] { a }
+          val typeDiff = leftDomain.diff(rightDomain)
+          // TODO: find out why we need to apply the leftTerm to self, instead of just leftTerm
+          //  https://github.com/yzyzsun/CP-next/blob/1d19de29ff/src/CP/Typing.purs#L475
+          val coeBody = Term.Typed(Term.Apply(leftTerm, Term.Var("$self")), typeDiff)
+          (Term.Coercion("$self", leftDomain, coeBody), Type.Trait(leftDomain, typeDiff))
+        }
+        case _ => {
+          val typeDiff = leftType.diff(rightType)
+          (Term.Typed(leftTerm, typeDiff), typeDiff)
+        }
+      }
+    }
+    
     case ExprTerm.Rename(_, _) => ???
     case ExprTerm.FoldFixpoint(_, _) => ???
     case ExprTerm.UnfoldFixpoint(_, _) => ???

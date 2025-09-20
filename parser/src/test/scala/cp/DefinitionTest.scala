@@ -103,4 +103,23 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     ty3.normalize should be(IntType.toType)
     term3.fullEval should be(IntValue(114514).toTerm)
   }
+  
+  test("synth merge") {
+    val code = """
+      def double(value: Int) = value * 2;
+      def isHello(str: String) = if str == "hello" then true else false;
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term1, ty1) = synthExpr("(double ,, isHello) (42 ,, \"hello\")")
+    ty1 should be (Type.Intersection(IntType.toType, BoolType.toType))
+    term1 should be (Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm))
+  }
+  
+  test("synth coercion") {
+    val code = """
+      f (x: Int) = false ,, x;
+    """
+    given newEnv: Environment = synthModule(code)(using prelude).toEnv
+    val (term1, ty1) = synthExpr("(f : Bool & Int -> Bool & Int) (true ,, 42)")
+  }
 }

@@ -49,5 +49,28 @@ object Prelude {
       }
     )
     
+    lazy val eqInt: NativeFunction = NativeFunction(
+      returnType = BoolType.toType,
+      paramTypes = Seq(IntType.toType, IntType.toType),
+      kind = NativeCallable.Kind.Operator("=="),
+      implementation = {
+        case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+          BoolValue(a == b).toTerm
+        case args => 
+          throw new IllegalArgumentException(s"Invalid arguments for ==: $args")
+      }
+    )
+    
+    lazy val eqString: NativeFunction = NativeFunction(
+      returnType = BoolType.toType,
+      paramTypes = Seq(StringType.toType, StringType.toType),
+      kind = NativeCallable.Kind.Operator("=="),
+      implementation = {
+        case Seq(Term.Primitive(StringValue(a)), Term.Primitive(StringValue(b))) =>
+          BoolValue(a == b).toTerm
+        case args => 
+          throw new IllegalArgumentException(s"Invalid arguments for ==: $args")
+      }
+    )
   }
 }

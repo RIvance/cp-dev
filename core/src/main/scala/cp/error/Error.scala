@@ -36,6 +36,7 @@ trait ErrorKind {
 }
 
 enum CoreErrorKind(override val message: String) extends ErrorKind {
+  case Unreachable extends CoreErrorKind("Undefined behavior")
   case UnsupportedFeature extends CoreErrorKind("Unsupported feature")
   case SizeNotMatch extends CoreErrorKind("Size not match")
   case TypeNotMatch extends CoreErrorKind("Type not match")
