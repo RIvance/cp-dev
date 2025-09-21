@@ -439,6 +439,7 @@ enum Term {
       val argEval: Term = arg.eval
       // We always evaluate the function in normalization mode.
       val funcEval: Term = func.eval(using env)(using EvalMode.Normalize)
+      
       // In normalization mode, 
       //  when argument is a pure value term (e.g. primitives, pure lambdas, etc.),
       //  we can perform beta-reduction.
@@ -449,11 +450,23 @@ enum Term {
       //  So that even if the argument is not a pure value term,
       //  it will not cause multiple side effects.
       (funcEval, argEval, mode) match {
-        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue =>
+        
+        case (Fixpoint(name, _, body), argValue, EvalMode.Full) if argValue.isValue => {
+          // Unfold the fixpoint once when it is applied to a value argument.
+          env.withTermVar(name, funcEval) { implicit newEnv =>
+            Term.Apply(body, argValue).eval(using newEnv)
+          }
+        }
+          
+        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => {
           env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
-        case (Lambda(param, _, body), argValue, EvalMode.Full) =>
+        }
+        
+        case (Lambda(param, _, body), argValue, EvalMode.Full) => {
           env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
-        case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity =>
+        }
+        
+        case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity => {
           // For partially applied native function calls, we can perform type application
           //  to instantiate the polymorphic native function.
           val evaluatedArgs: Seq[Term] = (args :+ argValue).map(_.eval)
@@ -471,6 +484,8 @@ enum Term {
             }
             Term.NativeFunctionCall(function, evaluatedArgs)
           }
+        }
+          
         case (Merge(left, right, MergeBias.Neutral), argEval, _) => {
           // Special case: when the function is a merge of two functions,
           //  we can try to apply both branches to the argument.
@@ -487,6 +502,7 @@ enum Term {
             }
           }
         }
+        
         case _ => Term.Apply(funcEval, argEval)
       }
     }

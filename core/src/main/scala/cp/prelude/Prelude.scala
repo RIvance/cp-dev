@@ -12,7 +12,16 @@ object Prelude {
     builder.termVar("-", overloaded(subInt, subFloat))
     builder.termVar("*", overloaded(mulInt, mulFloat))
     builder.termVar("==", overloaded(eqInt, eqFloat, eqString))
+    builder.termVar("<", overloaded(ltInt, ltFloat))
+    builder.termVar("<=", overloaded(leInt, leFloat))
+    builder.termVar(">", overloaded(gtInt, gtFloat))
+    builder.termVar(">=", overloaded(geInt, geFloat))
+    builder.termVar("&&", logicAnd.toTerm)
+    builder.termVar("||", logicOr.toTerm)
+    builder.termVar("!", logicNot.toTerm)
     builder.termVar("++", concatString.toTerm)
+    builder.termVar("length", lengthString.toTerm)
+    builder.termVar("toString", overloaded(toStringInt, toStringFloat, toStringBool))
   }
   
   private def overloaded(implementations: NativeFunction*): Term = {
@@ -29,7 +38,7 @@ object Prelude {
         case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
           IntValue(a + b).toTerm
         case args => 
-          throw new IllegalArgumentException(s"Invalid arguments for +: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `+`: $args")
       }
     )
     
@@ -41,7 +50,7 @@ object Prelude {
         case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
           FloatValue(a + b).toTerm
         case args => 
-          throw new IllegalArgumentException(s"Invalid arguments for +: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `+`: $args")
       }
     )
     
@@ -53,7 +62,7 @@ object Prelude {
         case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
           IntValue(a - b).toTerm
         case args => 
-          throw new IllegalArgumentException(s"Invalid arguments for -: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `-`: $args")
       }
     )
     
@@ -65,7 +74,7 @@ object Prelude {
         case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
           FloatValue(a - b).toTerm
         case args => 
-          throw new IllegalArgumentException(s"Invalid arguments for -: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `-`: $args")
       }
     )
 
@@ -77,7 +86,7 @@ object Prelude {
         case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
           IntValue(a * b).toTerm
         case args =>
-          throw new IllegalArgumentException(s"Invalid arguments for *: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `*`: $args")
       }
     )
     
@@ -89,7 +98,7 @@ object Prelude {
         case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
           FloatValue(a * b).toTerm
         case args =>
-          throw new IllegalArgumentException(s"Invalid arguments for *: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `*`: $args")
       }
     )
     
@@ -101,7 +110,7 @@ object Prelude {
         case Seq(Term.Primitive(StringValue(a)), Term.Primitive(StringValue(b))) =>
           StringValue(a + b).toTerm
         case args => 
-          throw new IllegalArgumentException(s"Invalid arguments for ++: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `++`: $args")
       }
     )
     
@@ -113,7 +122,7 @@ object Prelude {
         case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
           BoolValue(a == b).toTerm
         case args =>
-          throw new IllegalArgumentException(s"Invalid arguments for ==: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
       }
     )
 
@@ -125,7 +134,7 @@ object Prelude {
         case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
           BoolValue(a == b).toTerm
         case args =>
-          throw new IllegalArgumentException(s"Invalid arguments for ==: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
       }
     )
 
@@ -137,7 +146,7 @@ object Prelude {
         case Seq(Term.Primitive(StringValue(a)), Term.Primitive(StringValue(b))) =>
           BoolValue(a == b).toTerm
         case args =>
-          throw new IllegalArgumentException(s"Invalid arguments for ==: $args")
+          throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
       }
     )
   }
@@ -150,7 +159,7 @@ object Prelude {
       case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
         BoolValue(a && b).toTerm
       case args =>
-        throw new IllegalArgumentException(s"Invalid arguments for &&: $args")
+        throw new IllegalArgumentException(s"Invalid arguments for `&&`: $args")
     }
   )
   
@@ -162,7 +171,7 @@ object Prelude {
       case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
         BoolValue(a || b).toTerm
       case args =>
-        throw new IllegalArgumentException(s"Invalid arguments for ||: $args")
+        throw new IllegalArgumentException(s"Invalid arguments for `||`: $args")
     }
   )
   
@@ -174,9 +183,107 @@ object Prelude {
       case Seq(Term.Primitive(BoolValue(a))) =>
         BoolValue(!a).toTerm
       case args =>
-        throw new IllegalArgumentException(s"Invalid arguments for !: $args")
+        throw new IllegalArgumentException(s"Invalid arguments for `!`: $args")
     }
   )
+  
+  lazy val ltInt: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(IntType.toType, IntType.toType),
+    kind = NativeCallable.Kind.Operator("<"),
+    implementation = {
+      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+        BoolValue(a < b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `<`: $args")
+    }
+  )
+  
+  lazy val ltFloat: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(FloatType.toType, FloatType.toType),
+    kind = NativeCallable.Kind.Operator("<"),
+    implementation = {
+      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
+        BoolValue(a < b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `<`: $args")
+    }
+  )
+  
+  lazy val leInt: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(IntType.toType, IntType.toType),
+    kind = NativeCallable.Kind.Operator("<="),
+    implementation = {
+      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+        BoolValue(a <= b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `<=`: $args")
+    }
+  )
+  
+  lazy val leFloat: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(FloatType.toType, FloatType.toType),
+    kind = NativeCallable.Kind.Operator("<="),
+    implementation = {
+      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
+        BoolValue(a <= b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `<=`: $args")
+    }
+  )
+  
+  lazy val gtInt: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(IntType.toType, IntType.toType),
+    kind = NativeCallable.Kind.Operator(">"),
+    implementation = {
+      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+        BoolValue(a > b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `>`: $args")
+    }
+  )
+  
+  lazy val gtFloat: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(FloatType.toType, FloatType.toType),
+    kind = NativeCallable.Kind.Operator(">"),
+    implementation = {
+      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
+        BoolValue(a > b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `>`: $args")
+    }
+  )
+  
+  lazy val geInt: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(IntType.toType, IntType.toType),
+    kind = NativeCallable.Kind.Operator(">="),
+    implementation = {
+      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
+        BoolValue(a >= b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `>=`: $args")
+    }
+  )
+  
+  lazy val geFloat: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(FloatType.toType, FloatType.toType),
+    kind = NativeCallable.Kind.Operator(">="),
+    implementation = {
+      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
+        BoolValue(a >= b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for `>=`: $args")
+    }
+  )
+  
+  // Functions
   
   lazy val lengthString: NativeFunction = NativeFunction(
     returnType = IntType.toType,

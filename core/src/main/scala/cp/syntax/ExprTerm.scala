@@ -102,7 +102,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Var(name) => {
       env.termVars.get(name) match {
         case Some(term) => (term, term.infer)
-        case None => UnresolvedReference.raise(s"Undefined term: $name")
+        case None => UnresolvedReference.raise(s"Undefined symbol: $name")
       }
     }
 
@@ -455,6 +455,38 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       case e: SpannedError => throw e
       case e: Throwable => throw UnknownError(e, span)
     }
+  }
+  
+  def contains(name: String): Boolean = this match {
+    case Var(n) => n == name
+    case Typed(expr, _) => expr.contains(name)
+    case Apply(fn, args) => fn.contains(name) || args.exists(_.contains(name))
+    case Lambda(paramName, _, body) => paramName != name && body.contains(name)
+    case TypeLambda(paramName, body) => paramName != name && body.contains(name)
+    case Fixpoint(fixName, _, recursiveBody) => fixName != name && recursiveBody.contains(name)
+    case IfThenElse(cond, thenBr, elseBr) => cond.contains(name) || thenBr.contains(name) || elseBr.contains(name)
+    case LetIn(letName, value, _, body) => value.contains(name) || (letName != name && body.contains(name))
+    case Record(fields) => fields.values.exists(_.contains(name))
+    case Tuple(elements) => elements.exists(_.contains(name))
+    case Merge(left, right, _) => left.contains(name) || right.contains(name)
+    case Projection(record, _) => record.contains(name)
+    case TypeApply(term, _) => term.contains(name)
+    case OpenIn(record, body) => record.contains(name) || body.contains(name)
+    case Update(record, updates) => record.contains(name) || updates.values.exists(_.contains(name))
+    case Trait(_, _, inheritOpt, body) => inheritOpt.exists(_.contains(name)) || body.contains(name)
+    case New(body) => body.contains(name)
+    case Forward(left, right) => left.contains(name) || right.contains(name)
+    case Exclude(left, _) => left.contains(name)
+    case Remove(record, _) => record.contains(name)
+    case Diff(left, right) => left.contains(name) || right.contains(name)
+    case Rename(record, _) => record.contains(name)
+    case FoldFixpoint(_, body) => body.contains(name)
+    case UnfoldFixpoint(_, term) => term.contains(name)
+    case Do(expr, body) => expr.contains(name) || body.contains(name)
+    case ArrayLiteral(elements) => elements.exists(_.contains(name))
+    case Document(content) => content.contains(name)
+    case Span(term, _) => term.contains(name)
+    case Primitive(_) => false
   }
   
   def subst(name: String, replacement: ExprTerm): ExprTerm = this match {

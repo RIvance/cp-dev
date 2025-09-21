@@ -79,15 +79,29 @@ class Visitor extends CpParserBaseVisitor[
     }
     case ctx: TermDefinitionContext => {
       val name = ctx.`def`.name.getText
-      val typeParams = Option(ctx.`def`.typeParams).map(_.visit).getOrElse(List.empty)
-      val params = ctx.`def`.params.asScala.flatMap(_.visit).toList
-      val value = ctx.`def`.body.visit
+      val typeParams: List[String] = Option(ctx.`def`.typeParams).map(_.visit).getOrElse(List.empty)
+      val params: List[(String, Option[ExprType])] = ctx.`def`.params.asScala.flatMap(_.visit).toList
+      val value: ExprTerm = ctx.`def`.body.visit
+      val returnType: Option[ExprType] = Option(ctx.`def`.ty).map(_.visit)
+      val funcType: Option[ExprType] = returnType.flatMap { retTy =>
+        params.foldRight(Option(retTy)) {
+          case ((_, Some(paramType)), Some(acc)) => Some(ExprType.Arrow(paramType, acc))
+          case _ => None
+        }
+      }.map(_.withSpan(ctx))
       // Handle function with parameters
       val func = if params.isEmpty then value else value.foldLambda(params)
       // Apply type parameters if any
       val typedFunc = if typeParams.isEmpty then func else func.foldTypeLambda(typeParams)
       val constraints = visitConstraints(ctx.`def`.constraints.asScala.toSeq)
-      Definition.TermDef(name, typedFunc, constraints).withSpan(ctx.span)
+      val finalFunc: ExprTerm = if !typedFunc.contains(name) then typedFunc else funcType match {
+        // It can be a recursive function if the function type is known
+        case Some(ty) => ExprTerm.Fixpoint(name, ty, typedFunc).withSpan(ctx)
+        case None => RecursiveWithIncompleteType.raise(ctx.span) {
+          s"Recursive function '$name' must have complete type annotation"
+        }
+      }
+      Definition.TermDef(name, finalFunc, constraints).withSpan(ctx.span)
     }
     case ctx: SubmoduleDefinitionContext => {
       val name = ctx.`def`.name.getText

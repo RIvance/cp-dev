@@ -46,6 +46,7 @@ enum CoreErrorKind(override val message: String) extends ErrorKind {
   case DefinitionNotMatch extends CoreErrorKind("Definition not match")
   case OverloadingNotMatch extends CoreErrorKind("Overloading not match")
   case OverloadingAmbiguous extends CoreErrorKind("Overloading ambiguous")
+  case RecursiveWithIncompleteType extends CoreErrorKind("Recursive definition with incomplete type")
   case NoSuchOverloading extends CoreErrorKind("No such overloading")
   case NoSuchField extends CoreErrorKind("No such field")
   case UnresolvedReference extends CoreErrorKind("Unresolved reference")

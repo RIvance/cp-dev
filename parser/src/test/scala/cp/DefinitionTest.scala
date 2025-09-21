@@ -1,16 +1,13 @@
 package cp
 
-import cp.core.{Environment, Literal, LiteralType, Term, Type}
-import cp.core.LiteralType.*
+import cp.core.{Literal, LiteralType, Term, Type}
 import cp.core.Literal.*
-import cp.prelude.Prelude
+import cp.core.LiteralType.*
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
-
-  val prelude: Environment = Prelude.environment
   
   test("synth term definition id 1") {
     module("""
@@ -26,6 +23,16 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
         def id[A](x: A) = x;
     """) { implicit env =>
       "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
+    }
+  }
+  
+  test("synth fibonacci") {
+    module("""
+      def fib(n: Int): Int =
+        if n <= 1 then n
+        else fib(n - 1) + fib(n - 2);
+    """) { implicit env =>
+      "fib(10)" >>> (IntValue(55).toTerm, IntType.toType)
     }
   }
 
@@ -62,18 +69,15 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
   test("synth simple type with type parameter") {
     module("""
       type Box[A] = { value: A };
-
       def box[A](x: A): Box[A] = { value = x };
-
       def unbox[A](b: Box[A]): A = b.value;
     """) { implicit env =>
-      "unbox[Int](box[Int](42))" >>> (IntValue(42).toTerm, IntType.toType)
+      "unbox[Int](box[Int] 42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
 
-  test("synth type definition boxed") {
-    module(
-      """
+  test("synth type definition indexed") {
+    module("""
       type Box[A] = ∀R . ((A -> R) -> R);
       def box[A](x: A): Box[A] = ΛR . fun (f: A -> R) -> f(x);
       def unbox[A](b: Box[A]): A = b[A](fun (x: A) -> x);
