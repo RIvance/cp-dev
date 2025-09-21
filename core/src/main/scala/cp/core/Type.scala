@@ -281,12 +281,10 @@ enum Type {
 
   def normalize(using env: Environment): Type = this match {
     
-    case Var(name) => {
-      env.typeVars.get(name) match {
-        case Some(Var(newName)) if name == newName => this
-        case Some(resolvedType) => resolvedType.normalize
-        case None => this
-      }
+    case Var(name) => env.typeVars.get(name) match {
+      case Some(Var(newName)) if name == newName => this
+      case Some(resolvedType) => resolvedType.normalize
+      case None => this
     }
     
     case Primitive(ty) => this

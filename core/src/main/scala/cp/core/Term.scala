@@ -420,8 +420,8 @@ enum Term {
   ): Term = this match {
     
     case Var(name) => env.termVars.get(name) match {
-      case Some(Typed(Var(_), _)) => this // Prevent infinite loop for self-referential variables
-      case Some(Var(_)) => this // Prevent infinite loop for self-referential variables
+      case Some(Typed(Var(newName), _)) if newName == name => this
+      case Some(Var(newName)) if newName == name => this
       case Some(term) => term.eval
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
@@ -506,11 +506,12 @@ enum Term {
     
     case TypeApply(term, tyArg) => {
       val termEval: Term = term.eval
+      val normalizedTyArg = tyArg.normalize
       (termEval, mode) match {
         // It is always safe to perform type-level beta-reduction.
         case (TypeLambda(param, body), EvalMode.Normalize | EvalMode.Full) => 
-          env.withTypeVar(param, tyArg) { implicit newEnv => body.eval(using newEnv) }
-        case _ => Term.TypeApply(termEval, tyArg)
+          env.withTypeVar(param, normalizedTyArg) { implicit newEnv => body.eval(using newEnv) }
+        case _ => Term.TypeApply(termEval, normalizedTyArg)
       }
     }
     

@@ -48,12 +48,10 @@ enum ExprType extends OptionalSpanned[ExprType] {
     
     case Primitive(ty) => Type.Primitive(ty)
     
-    case Var(name) => {
-      env.typeVars.get(name) match {
-        case Some(ty) => ty
-        case None => UnboundVariable.raise {
-          s"Type variable $name is not bound in the current environment"
-        }
+    case Var(name) => env.typeVars.get(name) match {
+      case Some(ty) => ty
+      case None => UnboundVariable.raise {
+        s"Type variable $name is not bound in the current environment"
       }
     }
     

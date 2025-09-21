@@ -12,7 +12,7 @@ object Prelude {
     builder.termVar("-", overloaded(subInt, subFloat))
     builder.termVar("*", overloaded(mulInt, mulFloat))
     builder.termVar("==", overloaded(eqInt, eqFloat, eqString))
-    builder.termVar("++", concat.toTerm)
+    builder.termVar("++", concatString.toTerm)
   }
   
   private def overloaded(implementations: NativeFunction*): Term = {
@@ -93,7 +93,7 @@ object Prelude {
       }
     )
     
-    lazy val concat: NativeFunction = NativeFunction(
+    lazy val concatString: NativeFunction = NativeFunction(
       returnType = StringType.toType,
       paramTypes = Seq(StringType.toType, StringType.toType),
       kind = NativeCallable.Kind.Operator("++"),
@@ -141,4 +141,88 @@ object Prelude {
       }
     )
   }
+  
+  lazy val logicAnd: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(BoolType.toType, BoolType.toType),
+    kind = NativeCallable.Kind.Operator("&&"),
+    implementation = {
+      case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
+        BoolValue(a && b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for &&: $args")
+    }
+  )
+  
+  lazy val logicOr: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(BoolType.toType, BoolType.toType),
+    kind = NativeCallable.Kind.Operator("||"),
+    implementation = {
+      case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
+        BoolValue(a || b).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for ||: $args")
+    }
+  )
+  
+  lazy val logicNot: NativeFunction = NativeFunction(
+    returnType = BoolType.toType,
+    paramTypes = Seq(BoolType.toType),
+    kind = NativeCallable.Kind.Operator("!"),
+    implementation = {
+      case Seq(Term.Primitive(BoolValue(a))) =>
+        BoolValue(!a).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments for !: $args")
+    }
+  )
+  
+  lazy val lengthString: NativeFunction = NativeFunction(
+    returnType = IntType.toType,
+    paramTypes = Seq(StringType.toType),
+    kind = NativeCallable.Kind.Function("length"),
+    implementation = {
+      case Seq(Term.Primitive(StringValue(s))) =>
+        IntValue(s.length).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments: $args")
+    }
+  )
+  
+  lazy val toStringInt: NativeFunction = NativeFunction(
+    returnType = StringType.toType,
+    paramTypes = Seq(IntType.toType),
+    kind = NativeCallable.Kind.Function("toString"),
+    implementation = {
+      case Seq(Term.Primitive(IntValue(i))) =>
+        StringValue(i.toString).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments: $args")
+    }
+  )
+  
+  lazy val toStringFloat: NativeFunction = NativeFunction(
+    returnType = StringType.toType,
+    paramTypes = Seq(FloatType.toType),
+    kind = NativeCallable.Kind.Function("toString"),
+    implementation = {
+      case Seq(Term.Primitive(FloatValue(f))) =>
+        StringValue(f.toString).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments: $args")
+    }
+  )
+  
+  lazy val toStringBool: NativeFunction = NativeFunction(
+    returnType = StringType.toType,
+    paramTypes = Seq(BoolType.toType),
+    kind = NativeCallable.Kind.Function("toString"),
+    implementation = {
+      case Seq(Term.Primitive(BoolValue(b))) =>
+        StringValue(b.toString).toTerm
+      case args =>
+        throw new IllegalArgumentException(s"Invalid arguments: $args")
+    }
+  )
 }

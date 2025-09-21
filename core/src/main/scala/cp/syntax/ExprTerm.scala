@@ -319,21 +319,33 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
       
     case ExprTerm.Projection(record, field) => {
-      val (recordTerm, recordType) = record.synthesize
-      recordType match {
+      
+      val (term: Term, ty: Type) = record.synthesize
+
+      lazy val tryApplication: Option[(Term, Type)] = env.termVars.get(field) match {
+        case Some(fn) => fn.infer.testApplicationReturn(ty) match {
+          case Some(returnType) => Some((Term.Apply(fn, term), returnType))
+          case None => None
+        }
+        case _ => None
+      }
+      
+      ty match {
         case Type.Record(fieldTypes) => 
           fieldTypes.get(field) match {
             case Some(fieldType) => 
-              val projTerm = Term.Projection(recordTerm, field)
+              val projTerm = Term.Projection(term, field)
               if !projTerm.check(fieldType) then TypeNotMatch.raise {
                 s"Projection term does not check against its type: $projTerm : $fieldType"
               } else (projTerm, fieldType)
-            case None => TypeNotMatch.raise {
-              s"Field $field not found in record type: $recordType"
+            case None => tryApplication match {
+              case Some((application, returnType)) => (application, returnType)
+              case None => TypeNotMatch.raise(s"Field $field not found in record type: $ty")
             }
           }
-        case _ => TypeNotMatch.raise {
-          s"Projection on a non-record type: $recordType"
+        case _ => tryApplication match {
+          case Some((application, returnType)) => (application, returnType)
+          case None => TypeNotMatch.raise(s"Projection on a non-record type: $ty")
         }
       }
     }
