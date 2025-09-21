@@ -99,25 +99,27 @@ trait TestExtension extends should.Matchers {
   }
   
   extension (expr: String) {
-    protected infix def shouldEvalAs(expected: (Term, Type))(using env: Environment): Any = {
+    
+    protected infix def >>> (expected: (Term, Type))(using env: Environment): Any = {
       val (term, ty) = synthExpr(expr)
-      term should be (expected._1)
-      ty should be (expected._2)
+      term.fullEval should be (expected._1)
+      ty.normalize should be (expected._2)
     }
     
-    protected infix def shouldEvalAs(expected: Term)(using env: Environment): Any = {
+    protected infix def >>> (expected: Term)(using env: Environment): Any = {
       val (term, _) = synthExpr(expr)
-      term should be (expected)
+      term.fullEval should be (expected)
     }
     
-    protected infix def shouldHaveType(expected: Type)(using env: Environment): Any = {
-      // TODO: use `check`
-      val (_, ty) = synthExpr(expr)
-      ty should be (expected)
+    protected infix def >>: (expected: Type)(using env: Environment): Any = {
+      val (term, ty) = synthExpr(expr)
+      if !term.fullEval.check(expected) then {
+        fail(s"Term ($term : ${ty.normalize}) does not check against expected type $expected")
+      }
     }
   }
   
-  protected def withIn(code: String)(f: Environment => Any): Unit = {
+  protected def module[T](code: String)(f: Environment => T): Unit = {
     f(synthModule(code)(using Prelude.environment).toEnv)
   }
 }

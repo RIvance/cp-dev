@@ -10,76 +10,80 @@ import org.scalatest.matchers.should
 
 class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
 
-  given prelude: Environment = Prelude.environment
-
-  test("synth term definition id") {
-    val code = """
+  val prelude: Environment = Prelude.environment
+  
+  test("synth term definition id 1") {
+    module("""
       def id = Λ A . fun (x: A) -> x;
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term, ty) = synthExpr("id[Int](42)")
-    ty should be (IntType.toType)
-    term should be (IntValue(42).toTerm)
+    """) { implicit env =>
+      "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
+    }
   }
 
   test("synth term definition id 2") {
-    val code =
-      """
+    module("""
         // Another style of definition
         def id[A](x: A) = x;
-      """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term, ty) = synthExpr("id[Int](42)")
-    ty should be(IntType.toType)
-    term should be(IntValue(42).toTerm)
+    """) { implicit env =>
+      "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
+    }
   }
 
   test("synth simple type alias") {
-    val code ="""
+    module("""
       type Integer = Int;
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term, ty) = synthExpr("(1 + 2 : Integer)")
-    ty should be(IntType.toType)
-    term should be(IntValue(3).toTerm)
+    """) { implicit env =>
+      "(1 + 2 : Integer)" >>> (IntValue(3).toTerm, IntType.toType)
+    }
   }
 
   test("synth simple record type") {
-    val code = """
+    module("""
       type Point = { x: Int; y: Int };
 
       def origin: Point = { x = 0; y = 0 };
 
       def move(p: Point, dx: Int, dy: Int): Point =
         { x = p.x + dx; y = p.y + dy };
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term, ty) = synthExpr("move(origin, 3, 4)")
-    ty should be(Type.Record(Map("x" -> IntType.toType, "y" -> IntType.toType)))
-    term should be(
-      Term.Record(Map(
-        "x" -> IntValue(3).toTerm,
-        "y" -> IntValue(4).toTerm,
-      ))
-    )
+    """) { implicit env =>
+      "move(origin, 3, 4)" >>> (
+        Term.Record(Map(
+          "x" -> IntValue(3).toTerm,
+          "y" -> IntValue(4).toTerm,
+        )),
+        Type.Record(Map(
+          "x" -> IntType.toType, 
+          "y" -> IntType.toType
+        ))
+      )
+    }
   }
 
   test("synth simple type with type parameter") {
-    val code = """
+    module("""
       type Box[A] = { value: A };
 
       def box[A](x: A): Box[A] = { value = x };
 
       def unbox[A](b: Box[A]): A = b.value;
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term, ty) = synthExpr("unbox[Int](box[Int](42))")
-    ty should be(IntType.toType)
-    term should be(IntValue(42).toTerm)
+    """) { implicit env =>
+      "unbox[Int](box[Int](42))" >>> (IntValue(42).toTerm, IntType.toType)
+    }
+  }
+
+  test("synth type definition boxed") {
+    module(
+      """
+      type Box[A] = ∀R . ((A -> R) -> R);
+      def box[A](x: A): Box[A] = ΛR . fun (f: A -> R) -> f(x);
+      def unbox[A](b: Box[A]): A = b[A](fun (x: A) -> x);
+    """) { implicit env =>
+      "unbox[Int](box[Int] 42)" >>> (IntValue(42).toTerm, IntType.toType)
+    }
   }
 
   test("synth type definition pair") {
-    val code = """
+    module("""
       type Pair[A, B] = ∀R . ((A -> B -> R) -> R);
 
       def pair[A, B](x: A, y: B): Pair[A, B] =
@@ -90,51 +94,47 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
 
       def snd[A, B](p: Pair[A, B]): B =
         p[B](fun (x: A, y: B) -> y);
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term1, ty1) = synthExpr("fst[Int, String](pair[Int, String](42, \"Hello\"))")
-    ty1.normalize should be(IntType.toType)
-    term1.fullEval should be(IntValue(42).toTerm)
-    val (term2, ty2) = synthExpr("snd[Int, String](pair[Int, String](42, \"Hello\"))")
-    ty2.normalize should be(StringType.toType)
-    term2.fullEval should be(StringValue("Hello").toTerm)
-    
-    val (term3, ty3) = synthExpr("let x = pair[Int, String](114514, \"good!\") in fst[Int, String] x")
-    ty3.normalize should be(IntType.toType)
-    term3.fullEval should be(IntValue(114514).toTerm)
+    """) { implicit env =>
+      "fst[Int, String](pair[Int, String](42, \"Hello\"))" >>> (IntValue(42).toTerm, IntType.toType)
+      "snd[Int, String](pair[Int, String](42, \"Hello\"))" >>> (StringValue("Hello").toTerm, StringType.toType)
+      "let x = pair[Int, String](114514, \"good!\") in fst[Int, String] x" >>> (IntValue(114514).toTerm, IntType.toType)
+    }
   }
   
   test("synth merge overloading") {
-    val code = """
+    module("""
       def doubleInt(value: Int): Int = value * 2;
       def doubleString(value: String): String = value ++ value;
       def double = doubleInt ,, doubleString;
-    """
-    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-    val (term1, ty1) = synthExpr("double(21)")
-    ty1 should be (IntType.toType)
-    term1 should be (IntValue(42).toTerm)
-    val (term2, ty2) = synthExpr("double(\"ha\")")
-    ty2 should be (StringType.toType)
-    term2 should be (StringValue("haha").toTerm)
+    """) { implicit env =>
+      "double(21)" >>> (IntValue(42).toTerm, IntType.toType)
+      "double(\"ha\")" >>> (StringValue("haha").toTerm, StringType.toType)
+    }
   }
   
 //  test("synth merge") {
-//    val code = """
+//    module("""
 //      def double(value: Int) = value * 2;
 //      def isHello(str: String) = if str == "hello" then true else false;
-//    """
-//    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-//    val (term1, ty1) = synthExpr("(double ,, isHello) (42 ,, \"hello\")")
-//    ty1 should be (Type.Intersection(IntType.toType, BoolType.toType))
-//    term1 should be (Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm))
+//    """) { implicit env =>
+//      "(double ,, isHello)(42)" >>> (IntValue(84).toTerm, IntType.toType)
+//      "(double ,, isHello)(\"hello\")" >>> (BoolValue(true).toTerm, BoolType.toType)
+//      "(double ,, isHello)(\"world\")" >>> (BoolValue(false).toTerm, BoolType.toType)
+//      "(double ,, isHello) (42 ,, \"hello\")" >>> (
+//        Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm), 
+//        Type.Intersection(IntType.toType, BoolType.toType)
+//      )
+//    }
 //  }
-//  
+//
 //  test("synth coercion") {
-//    val code = """
+//    module("""
 //      f (x: Int) = false ,, x;
-//    """
-//    given newEnv: Environment = synthModule(code)(using prelude).toEnv
-//    val (term1, ty1) = synthExpr("(f : Bool & Int -> Bool & Int) (true ,, 42)")
+//    """) { implicit env =>
+//      "(f : Bool & Int -> Bool & Int) (true ,, 42)" >>> (
+//        Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))), 
+//        Type.Intersection(BoolType.toType, IntType.toType)
+//      )
+//    }
 //  }
 }
