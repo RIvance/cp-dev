@@ -19,7 +19,15 @@ case class Environment(
   def withTermVar[T](name: String, term: Term)(f: Environment => T): T = {
     f(addTermVar(name, term))
   }
-    
+  
+  def withTermVars[T](vars: Map[String, Term])(f: Environment => T): T = {
+    f(copy(termVars = termVars ++ vars))
+  }
+
+  def withTermVars[T](vars: (String, Term)*)(f: Environment => T): T = {
+    f(copy(termVars = termVars ++ vars.toMap))
+  }
+
   def freshTypeName: String = {
     Iterator.from(0).map(n => s"$$Type$$$n").find(!typeVars.contains(_)).get
   }

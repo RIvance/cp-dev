@@ -313,6 +313,18 @@ enum Type {
         case (Primitive(TopType), right) => right
         case (left, Primitive(TopType)) => left
         case _ if normalizedLhs == normalizedRhs => normalizedLhs
+        case (Record(fields1), Record(fields2)) => {
+          val commonFields = fields1.keySet.intersect(fields2.keySet)
+          val disjointFields = fields1.keySet.diff(fields2.keySet) ++ fields2.keySet.diff(fields1.keySet)
+          // Merge the two records into one single record type, for common fields, take the intersection of their types
+          val fields = (disjointFields.map { label =>
+            if fields1.contains(label) then label -> fields1(label)
+            else label -> fields2(label)
+          } ++ commonFields.map { label =>
+            label -> fields1(label).normalize.merge(fields2(label).normalize)
+          }).toMap
+          Record(fields)
+        }
         case _ => Intersection(normalizedLhs, normalizedRhs)
       }
     }

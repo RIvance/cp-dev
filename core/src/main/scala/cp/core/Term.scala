@@ -70,147 +70,155 @@ enum Term {
   //  Similar to native function calls, it can be partially applied.
   case NativeProcedureCall(procedure: NativeProcedure, args: Seq[Term])
 
-  def infer(using env: Environment): Type = this match {
-    
-    case Var(name) => env.termVars.get(name) match {
-      case Some(term) => term.infer
-      case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
-    }
-    
-    case Typed(_, ty) => ty
-    
-    case Primitive(value) => Type.Primitive(value.ty)
-    
-    case Apply(func, arg) => func.infer match {
-      case Type.Arrow(paramType, returnType) =>
-        val argType = arg.infer
-        if !(argType <:< paramType) then TypeNotMatch.raise {
-          s"Expected argument type: ${paramType}, but got: ${argType}"
-        } else returnType
-      case fnType@Type.Intersection(_, _) => {
-        val argType = arg.infer
-        fnType.testApplicationReturn(argType) match {
-          case Some(returnType) => returnType
-          case None => TypeNotMatch.raise {
-            s"Function type ${fnType} cannot be applied to argument type ${argType}"
+  def infer(using env: Environment): Type = {
+    val inferredType = this match {
+
+      case Var(name) => env.termVars.get(name) match {
+        case Some(term) => term.infer
+        case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
+      }
+
+      case Typed(_, ty) => ty
+
+      case Primitive(value) => Type.Primitive(value.ty)
+
+      case Apply(func, arg) => func.infer match {
+        case Type.Arrow(paramType, returnType) =>
+          val argType = arg.infer
+          if !(argType <:< paramType) then TypeNotMatch.raise {
+            s"Expected argument type: ${paramType}, but got: ${argType}"
+          } else returnType
+        case fnType@Type.Intersection(_, _) => {
+          val argType = arg.infer
+          fnType.testApplicationReturn(argType) match {
+            case Some(returnType) => returnType
+            case None => TypeNotMatch.raise {
+              s"Function type ${fnType} cannot be applied to argument type ${argType}"
+            }
+          }
+        }
+        // TODO: Figure out whether we also need to handle trait (coercive) application here.
+        case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
+      }
+
+      case CoeApply(coe, arg) => coe.infer match {
+        case Type.Trait(paramType, returnType) =>
+          val argType = arg.infer
+          if !(argType <:< paramType) then TypeNotMatch.raise {
+            s"Expected argument type: ${paramType}, but got: ${argType}"
+          } else returnType
+        case fnType@Type.Intersection(_, _) => {
+          val argType = arg.infer
+          fnType.testApplicationReturn(argType) match {
+            case Some(returnType) => returnType
+            case None => TypeNotMatch.raise {
+              s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
+            }
+          }
+        }
+        case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
+      }
+
+      case TypeApply(term, tyArg) => term.infer match {
+        case Type.Forall(param, body, _) => body.subst(param, tyArg)
+        case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
+      }
+
+      case Lambda(param, paramType, body) => {
+        env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+          implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv))
+        }
+      }
+
+      case Coercion(param, paramType, body) => {
+        env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+          implicit newEnv => Type.Trait(paramType, body.infer(using newEnv))
+        }
+      }
+
+      case TypeLambda(param, body) => {
+        env.withTypeVar(param, Type.Var(param)) {
+          implicit newEnv => Type.Forall(param, body.infer(using newEnv))
+        }
+      }
+
+      case Fixpoint(_, ty, _) => ty
+
+      case Projection(record, field) => record.infer match {
+        case Type.Record(fieldTypes) => fieldTypes.get(field) match {
+          case Some(fieldType) => fieldType
+          case None => NoSuchField.raise {
+            s"Field '${field}' does not exist in record type ${record.infer}"
+          }
+        }
+        case other => TypeNotMatch.raise {
+          s"Expected record type, but got: ${other}"
+        }
+      }
+
+      case Record(fields) => {
+        if fields.isEmpty then Type.unit
+        else Type.Record(fields.map { (name, term) => (name, term.infer) })
+      }
+
+      case Tuple(elements) => {
+        if elements.isEmpty then Type.unit
+        else Type.Tuple(elements.map(_.infer))
+      }
+
+      case Merge(left, right, MergeBias.Left) => {
+        Merge(left, Term.Diff(right, left), MergeBias.Neutral).infer
+      }
+
+      case Merge(left, right, MergeBias.Right) => {
+        Merge(Term.Diff(left, right), right, MergeBias.Neutral).infer
+      }
+
+      case Merge(left, right, MergeBias.Neutral) => left.infer merge right.infer
+
+      case Diff(left, right) => left.infer diff right.infer
+
+      case IfThenElse(_, thenBranch, elseBranch) => {
+        val thenType = thenBranch.infer
+        val elseType = elseBranch.infer
+        if thenType == elseType then thenType
+        else if thenType <:< elseType then elseType
+        else if elseType <:< thenType then thenType
+        else TypeNotMatch.raise {
+          s"Branches of IfThenElse have incompatible types: ${thenType} and ${elseType}"
+        }
+      }
+
+      case ArrayLiteral(_) => ???
+      case FoldFixpoint(_, _) => ???
+      case UnfoldFixpoint(_, _) => ???
+      case Do(_, _) => ???
+      case RefAddr(_, _) => ???
+
+      case NativeFunctionCall(function, args) => {
+        if args.length > function.arity then TypeNotMatch.raise {
+          s"Too many arguments for native function: expected at most ${function.arity}, got ${args.length}"
+        }
+        val paramTypes = function.paramTypes
+        args.zip(paramTypes).foreach { (arg, paramType) =>
+          val argType = arg.infer
+          if !(argType <:< paramType) then TypeNotMatch.raise {
+            s"Expected argument type: ${paramType}, but got: ${argType}"
+          }
+        }
+        if args.length == function.arity then {
+          function.returnType
+        } else {
+          paramTypes.drop(args.length).foldRight(function.returnType) {
+            (paramType, acc) => Type.Arrow(paramType, acc)
           }
         }
       }
-      // TODO: Figure out whether we also need to handle trait (coercive) application here.
-      case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
+      
+      case NativeProcedureCall(_, _) => ???
     }
     
-    case CoeApply(coe, arg) => coe.infer match {
-      case Type.Trait(paramType, returnType) =>
-        val argType = arg.infer
-        if !(argType <:< paramType) then TypeNotMatch.raise {
-          s"Expected argument type: ${paramType}, but got: ${argType}"
-        } else returnType
-      case fnType@Type.Intersection(_, _) => {
-        val argType = arg.infer
-        fnType.testApplicationReturn(argType) match {
-          case Some(returnType) => returnType
-          case None => TypeNotMatch.raise {
-            s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
-          }
-        }
-      }
-      case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
-    }
-    
-    case TypeApply(term, tyArg) => term.infer match {
-      case Type.Forall(param, body, _) => body.subst(param, tyArg)
-      case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
-    }
-    
-    case Lambda(param, paramType, body) => {
-      env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
-        implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv))
-      }
-    }
-
-    case Coercion(_, _, _) => ???
-    
-    case TypeLambda(param, body) => {
-      env.withTypeVar(param, Type.Var(param)) { 
-        implicit newEnv => Type.Forall(param, body.infer(using newEnv))
-      }
-    }
-    
-    case Fixpoint(_, ty, _) => ty
-    
-    case Projection(record, field) => record.infer match {
-      case Type.Record(fieldTypes) => fieldTypes.get(field) match {
-        case Some(fieldType) => fieldType
-        case None => NoSuchField.raise {
-          s"Field '${field}' does not exist in record type ${record.infer}"
-        }
-      }
-      case other => TypeNotMatch.raise {
-        s"Expected record type, but got: ${other}"
-      }
-    }
-    
-    case Record(fields) => {
-      if fields.isEmpty then Type.unit
-      else Type.Record(fields.map { (name, term) => (name, term.infer) })
-    }
-    
-    case Tuple(elements) => {
-      if elements.isEmpty then Type.unit 
-      else Type.Tuple(elements.map(_.infer))
-    }
-    
-    case Merge(left, right, MergeBias.Left) => {
-      Merge(left, Term.Diff(right, left), MergeBias.Neutral).infer
-    }
-    
-    case Merge(left, right, MergeBias.Right) => {
-      Merge(Term.Diff(left, right), right, MergeBias.Neutral).infer
-    }
-    
-    case Merge(left, right, MergeBias.Neutral) => left.infer merge right.infer
-
-    case Diff(left, right) => left.infer diff right.infer
-    
-    case IfThenElse(_, thenBranch, elseBranch) => {
-      val thenType = thenBranch.infer
-      val elseType = elseBranch.infer
-      if thenType == elseType then thenType
-      else if thenType <:< elseType then elseType
-      else if elseType <:< thenType then thenType
-      else TypeNotMatch.raise {
-        s"Branches of IfThenElse have incompatible types: ${thenType} and ${elseType}"
-      }
-    }
-    
-    case ArrayLiteral(_) => ???
-    case FoldFixpoint(_, _) => ???
-    case UnfoldFixpoint(_, _) => ???
-    case Do(_, _) => ???
-    case RefAddr(_, _) => ???
-    
-    case NativeFunctionCall(function, args) => {
-      if args.length > function.arity then TypeNotMatch.raise {
-        s"Too many arguments for native function: expected at most ${function.arity}, got ${args.length}"
-      }
-      val paramTypes = function.paramTypes
-      args.zip(paramTypes).foreach { (arg, paramType) =>
-        val argType = arg.infer
-        if !(argType <:< paramType) then TypeNotMatch.raise {
-          s"Expected argument type: ${paramType}, but got: ${argType}"
-        }
-      }
-      if args.length == function.arity then {
-        function.returnType
-      } else {
-        paramTypes.drop(args.length).foldRight(function.returnType) {
-          (paramType, acc) => Type.Arrow(paramType, acc)
-        }
-      }
-    }
-    
-    case NativeProcedureCall(_, _) => ???
+    inferredType.normalize
   }
 
   def check(expectedType: Type)(using env: Environment): Boolean = this match {

@@ -1,8 +1,8 @@
 package cp
 
-import cp.core.{Environment, Literal, LiteralType, Term, Type}
-import cp.core.LiteralType.*
+import cp.core.{Environment, Literal, LiteralType, Type}
 import cp.core.Literal.*
+import cp.core.LiteralType.*
 import cp.prelude.Prelude
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
@@ -13,43 +13,56 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   given Environment = Prelude.environment
   
   test("synth primitive type Int") {
-    val (term, ty) = synthExpr("1")
-    ty should be (IntType.toType)
-    term should be (IntValue(1).toTerm)
+    "1" >>> (IntValue(1).toTerm, IntType.toType)
   }
   
   test("term in environment") {
     given env: Environment = Prelude.environment.addTermVar("x", IntValue(42).toTerm)
-    val (term, ty) = synthExpr("x")
-    ty should be (IntType.toType)
-    term should be (IntValue(42).toTerm)
+    "x" >>> (IntValue(42).toTerm, IntType.toType)
   }
   
   test("add two integers") {
-    val (term, ty) = synthExpr("1 + 2")
-    ty should be (IntType.toType)
-    term should be (IntValue(3).toTerm)
+    "1 + 2" >>> (IntValue(3).toTerm, IntType.toType)
   }
   
   test("concatenate two strings") {
-    val (term, ty) = synthExpr("\"Hello, \" ++ \"world!\"")
-    ty should be (StringType.toType)
-    term should be (StringValue("Hello, world!").toTerm)
+    "\"Hello, \" ++ \"world!\"" >>> (
+      Literal.StringValue("Hello, world!").toTerm, 
+      LiteralType.StringType.toType
+    )
   }
   
   test("synth lambda") {
-    val (term, ty) = synthExpr("fun (x: Int) -> x + 1")
-    ty should be (Type.Arrow(IntType.toType, IntType.toType))
-    Term.Apply(term, IntValue(41).toTerm).eval should be (IntValue(42).toTerm)
+    "fun (x: Int) -> x + 1" >>: Type.Arrow(IntType.toType, IntType.toType)
+    "(fun (x: Int) -> x + 1) 41" >>> (IntValue(42).toTerm, IntType.toType)
   }
   
   test("synth high-order lambda") {
-    val (term, ty) = synthExpr("fun (f: Int -> Int) -> f(41)")
-    ty should be (Type.Arrow(
+    "fun (f: Int -> Int) -> f(41)" >>: Type.Arrow(
       Type.Arrow(IntType.toType, IntType.toType),
       IntType.toType
-    ))
-    val (lambdaArg, _) = synthExpr("fun (x: Int) -> x + 1")
-    Term.Apply(term, lambdaArg).fullEval should be (IntValue(42).toTerm)
+    )
+    "(fun (f: Int -> Int) -> f(41)) (fun (x: Int) -> x + 1)" >>> (
+      IntValue(42).toTerm, IntType.toType
+    )
+  }
+  
+  test("synth method style function call") {
+    "114514.toString" >>> (
+      Literal.StringValue("114514").toTerm, 
+      LiteralType.StringType.toType
+    )
+    "(1 + 2).toString" >>> (
+      Literal.StringValue("3").toTerm, 
+      LiteralType.StringType.toType
+    )
+    "(\"Hello, \" ++ \"world!\").length" >>> (
+      Literal.IntValue(13).toTerm, 
+      LiteralType.IntType.toType
+    )
+    "(114.toString ++ 514.toString).length" >>> (
+      Literal.IntValue(6).toTerm, 
+      LiteralType.IntType.toType
+    )
   }
 }

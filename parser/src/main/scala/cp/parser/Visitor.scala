@@ -358,7 +358,7 @@ class Visitor extends CpParserBaseVisitor[
     val body = ctx.expr.visit
 
     ExprTerm.Trait(
-      selfAnno.getOrElse(SelfAnnotation[ExprType]("self", None)), 
+      selfAnno.getOrElse(SelfAnnotation[ExprType]("self", None)),
       implements, inherits, body
     ).withSpan(ctx)
   }
@@ -586,9 +586,10 @@ class Visitor extends CpParserBaseVisitor[
 
   extension (ctx: RecordContext) def visit: ExprTerm = {
     val fields = ctx.entities.asScala.map {
-      case field: RecordFieldContext => field.name.getText -> field.value.visit
+      case field: RecordFieldContext => 
+        field.name.getText -> RecordField(field.value.visit, Option(field.Override).isDefined)
       // TODO: Handle other record entity types as needed
-      case _ => ("unknown", ExprTerm.unit)
+      case _ => ("unknown", RecordField(ExprTerm.unit))
     }.toMap
     ExprTerm.Record(fields)
   }

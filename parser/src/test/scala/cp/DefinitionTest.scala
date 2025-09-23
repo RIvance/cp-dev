@@ -8,7 +8,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
-  
+
   test("synth term definition id 1") {
     module("""
       def id = Λ A . fun (x: A) -> x;
@@ -25,7 +25,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
-  
+
   test("synth fibonacci") {
     module("""
       def fib(n: Int): Int =
@@ -59,7 +59,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
           "y" -> IntValue(4).toTerm,
         )),
         Type.Record(Map(
-          "x" -> IntType.toType, 
+          "x" -> IntType.toType,
           "y" -> IntType.toType
         ))
       )
@@ -125,7 +125,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
 //      "(double ,, isHello)(\"hello\")" >>> (BoolValue(true).toTerm, BoolType.toType)
 //      "(double ,, isHello)(\"world\")" >>> (BoolValue(false).toTerm, BoolType.toType)
 //      "(double ,, isHello) (42 ,, \"hello\")" >>> (
-//        Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm), 
+//        Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm),
 //        Type.Intersection(IntType.toType, BoolType.toType)
 //      )
 //    }
@@ -136,9 +136,34 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
 //      f (x: Int) = false ,, x;
 //    """) { implicit env =>
 //      "(f : Bool & Int -> Bool & Int) (true ,, 42)" >>> (
-//        Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))), 
+//        Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))),
 //        Type.Intersection(BoolType.toType, IntType.toType)
 //      )
 //    }
 //  }
+  
+  test("synth trait") {
+    module("""
+      type Editor = {
+        onKey: String -> String;
+        doCut: String;
+        showHelp: String;
+      };
+      
+      type Version = { version : String };
+      
+      editor = trait [self : Editor & Version] implements Editor => {
+        onKey = fun (key: String) -> "Pressing " ++ key;
+        doCut = self.onKey "C-x" ++ " for cutting text";
+        showHelp = "Version " ++ self.version ++ ": usage...";
+      };
+      
+      version = trait => { version = "0.1" };
+    """) { implicit env =>
+      "(new editor ,, version).showHelp" >>> (
+        StringValue("Version 0.1: usage...").toTerm,
+        StringType.toType
+      )
+    }
+  }
 }

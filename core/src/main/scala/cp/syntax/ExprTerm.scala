@@ -1,6 +1,7 @@
 package cp.syntax
 
 import cp.core.*
+import cp.core.LiteralType.*
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, SourceSpan}
@@ -27,7 +28,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case LetIn(name: String, value: ExprTerm, ty: Option[ExprType], body: ExprTerm)
 
-  case Record(fields: Map[String, ExprTerm])
+  case Record(fields: Map[String, RecordField])
 
   case Tuple(elements: List[ExprTerm])
 
@@ -45,12 +46,13 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case Trait(
     selfAnno: SelfAnnotation[ExprType],
+    // `implements` are just for type checking, they do not appear in the runtime term.
     implements: Option[ExprType],
     inherits: Option[ExprTerm],
     body: ExprTerm,
   )
 
-  case New(body: ExprTerm)
+  case New(traitObject: ExprTerm)
 
   case Forward(left: ExprTerm, right: ExprTerm)
 
@@ -243,7 +245,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Record(fields) => {
       val synthesizedFields: Map[String, (Term, Type)] = fields.map {
         case (fieldName, fieldExpr) => {
-          val (fieldTerm, fieldType) = fieldExpr.synthesize
+          val (fieldTerm, fieldType) = fieldExpr.value.synthesize
           (fieldName, (fieldTerm, fieldType))
         }
       }
@@ -288,22 +290,22 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
             s"Cannot merge two overlapping traits: $leftType and $rightType"
           }
-          val mergedType = (leftDomain, rightDomain) match {
+          val mergedDomain = (leftDomain, rightDomain) match {
             case (Type.Primitive(LiteralType.TopType), _) => rightType
             case (_, Type.Primitive(LiteralType.TopType)) => leftType
-            case _ => Type.Intersection(leftType, rightType)
+            case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
           Term.Coercion(
             param = "$self",
-            paramType = mergedType,
+            paramType = mergedDomain,
             body = Term.Merge(
               Term.Apply(leftTerm, Term.Var("$self")),
               Term.Apply(rightTerm, Term.Var("$self")),
               MergeBias.Neutral
             ),
           ) -> Type.Trait(
-            domain = mergedType, 
-            codomain = Type.Intersection(leftCodomain, rightCodomain)
+            domain = mergedDomain, 
+            codomain = Type.Intersection(leftCodomain, rightCodomain).normalize
           )
         }
         case _ => 
@@ -330,7 +332,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         case _ => None
       }
       
-      ty match {
+      ty.normalize match {
         case Type.Record(fieldTypes) => 
           fieldTypes.get(field) match {
             case Some(fieldType) => 
@@ -409,8 +411,144 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
     
     case ExprTerm.Update(_, _) => ???
-    case ExprTerm.Trait(_, _, _, _) => ???
-    case ExprTerm.New(_) => ???
+    
+    case ExprTerm.Trait(SelfAnnotation(selfName, selfTypeExprOpt), implementExprOpt, inheritExprOpt, body) => {
+      val selfType: Type = selfTypeExprOpt.map(_.synthesize).getOrElse(Type.top)
+      val implTypeOpt: Option[Type] = implementExprOpt.map(_.synthesize)
+      inheritExprOpt match {
+        // There is an inherited trait
+        case Some(inheritExpr) => {
+          val (inheritTerm: Term, inheritType: Type) = inheritExpr.synthesize
+          inheritType match {
+            case Type.Trait(inheritDomain, inheritCodomain) => {
+              if !(selfType <:< inheritDomain) then TypeNotMatch.raise {
+                s"Trait self type $selfType is not a subtype of inherited trait domain $inheritDomain"
+              }
+              env.withTermVars( // Environment with self and super bindings
+                selfName -> Term.Typed(Term.Var(selfName), selfType),
+                "super" -> Term.Typed(Term.Var("super"), inheritCodomain),
+              ) { implicit env =>
+                // Synthesize body in the new environment
+                val (bodyTerm: Term, bodyType: Type) = body.synthesize
+                // Identify which fields in bodyType override fields in inheritCodomain
+                val overrideLabels: Set[String] = body.collectOverrideFields
+                
+                extension (ty: Type) def getFieldTypes: Map[String, Type] = ty match {
+                  case Type.Record(fieldTypes) => fieldTypes
+                  case Type.Intersection(lhs, rhs) =>
+                    lhs.getFieldTypes ++ rhs.getFieldTypes
+                  case _ => Map.empty
+                }
+                // Check that overridden fields are subtypes of inherited fields
+                val overriddenFields: Map[String, Type] = bodyType.getFieldTypes.filter {
+                  case (label, _) => overrideLabels.contains(label)
+                }
+                val fieldsInInherit: Map[String, Type] = inheritCodomain.getFieldTypes.filter {
+                  case (label, _) => overrideLabels.contains(label)
+                }
+                overriddenFields.foreach {
+                  case (label, overriddenType) => fieldsInInherit.get(label) match {
+                    case Some(inheritedType) => if !(overriddenType <:< inheritedType) then TypeNotMatch.raise {
+                      s"Overridden field $label type $overriddenType is not a subtype of inherited field type $inheritedType"
+                    }
+                    case None => Unreachable.raise {
+                      s"Field $label is marked as overridden but not found in inherited trait codomain"
+                    }
+                  }
+                }
+                // Prepare codomain for type intersection by removing overridden fields from inheritCodomain
+                // So that we don't have duplicate fields in the intersection.
+                // TODO: Maybe we can just move this logic to Type.Intersection. So that 
+                //  we can get rid of the stupid `prepareIntersection`.
+                extension (ty: Type) def prepareIntersection: Type = ty match {
+                  case Type.Intersection(lhs, rhs) =>
+                    val lhsPrepared = lhs.prepareIntersection
+                    val rhsPrepared = rhs.prepareIntersection
+                    (lhsPrepared, rhsPrepared) match {
+                      case (Type.Primitive(TopType), Type.Primitive(TopType)) => Type.top
+                      case (Type.Primitive(TopType), _) => rhsPrepared
+                      case (_, Type.Primitive(TopType)) => lhsPrepared
+                      case _ => Type.Intersection(lhsPrepared, rhsPrepared)
+                    }
+                  case Type.Record(fieldTypes) =>
+                    Type.Record(fieldTypes.filterNot { case (label, _) => overrideLabels.contains(label) })
+                  case _ => ty
+                }
+                // Override codomain with body definitions
+                val preparedCodomain = inheritCodomain.prepareIntersection
+                if !preparedCodomain.disjointWith(bodyType) then TypeNotMatch.raise {
+                  s"Trait body type $bodyType is not disjoint with inherited trait codomain $inheritCodomain"
+                }
+                // Do the intersection to get the final codomain where overridden fields are replaced
+                val overriddenCodomain = Type.Intersection(preparedCodomain, bodyType).normalize
+                val resultTerm = Term.Apply(
+                  func = Term.Lambda(
+                    param = "super",
+                    paramType = inheritDomain,
+                    body = Term.Merge(
+                      Term.Typed(Term.Var("super"), overriddenCodomain),
+                      bodyTerm,
+                      MergeBias.Neutral,
+                    )
+                  ),
+                  arg = Term.Apply(inheritTerm, Term.Var(selfName)),
+                )
+                
+                if !resultTerm.check(overriddenCodomain) then TypeNotMatch.raise {
+                  s"Result term does not check against overridden codomain: $resultTerm : $overriddenCodomain"
+                }
+                
+                val traitTerm = Term.Coercion(selfName, selfType, resultTerm)
+                val traitType = Type.Trait(selfType, overriddenCodomain)
+                
+                if implTypeOpt.exists(implType => !(bodyType <:< implType)) then TypeNotMatch.raise {
+                  s"Trait codomain $overriddenCodomain does not implement declared interface ${implTypeOpt.get}"
+                } else if !traitTerm.check(traitType) then TypeNotMatch.raise {
+                  s"Trait term does not check against its type: $traitTerm : $traitType"
+                } else (traitTerm, traitType)
+              }
+            }
+            // Match inheritType - Inherited expression is not a trait
+            case _ => TypeNotMatch.raise {
+              s"Inherited expression must be of a trait type, but got: $inheritType"
+            }
+          }
+        }
+        // Match inheritExprOpt - There is no inherited trait
+        case None => {
+          env.withTermVar(selfName, Term.Typed(Term.Var(selfName), selfType)) { implicit env =>
+            val (bodyTerm: Term, bodyType: Type) = body.synthesize
+            val traitCodomain = bodyType.normalize
+            val traitTerm = Term.Coercion(
+              param = selfName,
+              paramType = selfType,
+              body = bodyTerm,
+            )
+            val traitType = Type.Trait(selfType, traitCodomain)
+            if implTypeOpt.exists(implType => !(bodyType <:< implType)) then TypeNotMatch.raise {
+              s"Trait codomain $traitCodomain does not implement declared interface ${implTypeOpt.get}"
+            } else if !traitTerm.check(traitType) then TypeNotMatch.raise {
+              s"Trait term does not check against its type: $traitTerm : $traitType"
+            } else (traitTerm, traitType)
+          }
+        }
+      }
+    }
+    
+    case ExprTerm.New(traitTermExpr) => {
+      val (traitTerm: Term, traitType: Type) = traitTermExpr.synthesize
+      traitType.normalize match {
+        case Type.Trait(domain, codomain) => {
+          if codomain <:< domain then {
+            Term.Fixpoint("$self", domain, Term.Apply(traitTerm, Term.Var("$self"))) -> codomain
+          } else TypeNotMatch.raise {
+            s"Trait codomain $codomain is not a subtype of its domain $domain"
+          }
+        }
+        case _ => TypeNotMatch.raise(s"`new` expression must be of a trait type, but got: $traitType")
+      }
+    }
+    
     case ExprTerm.Forward(_, _) => ???
     case ExprTerm.Exclude(_, _) => ???
     case ExprTerm.Remove(_, _) => ???
@@ -450,10 +588,12 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     
     case ExprTerm.Document(_) => ???
 
-    case ExprTerm.Span(term, span) => try term.synthesize catch {
-      case e: CoreError => throw e.withSpan(span)
-      case e: SpannedError => throw e
-      case e: Throwable => throw UnknownError(e, span)
+    case ExprTerm.Span(term, span) => {
+      try term.synthesize catch {
+        case e: CoreError => throw e.withSpan(span)
+        case e: SpannedError => throw e
+        case e: Throwable => throw UnknownError(e, span)
+      }
     }
   }
   
@@ -610,6 +750,18 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
   }
 
+  private def collectOverrideFields: Set[String] = this match {
+    case ExprTerm.Span(term, _) => term.collectOverrideFields
+    case ExprTerm.OpenIn(_, body) => body.collectOverrideFields
+    case ExprTerm.Merge(lhs, rhs, _) => lhs.collectOverrideFields ++ rhs.collectOverrideFields
+    // Fields marked as overriding with 'true' flag
+    // TODO: only override the inner field if it's a method pattern
+    case ExprTerm.Record(fields) => fields.collect {
+      case (fieldName, RecordField(_, true)) => fieldName
+    }.toSet
+    case _ => Set.empty
+  }
+
   // Add parentheses where necessary to ensure correct parsing.
   def toStringAtom: String = this match {
     case _: Typed => s"(${this.toString})"
@@ -715,4 +867,17 @@ object ExprTerm {
   def str(value: String): ExprTerm = ExprTerm.Primitive(Literal.StringValue(value))
   def bool(value: Boolean): ExprTerm = ExprTerm.Primitive(Literal.BoolValue(value))
   def unit: ExprTerm = ExprTerm.Primitive(Literal.UnitValue)
+}
+
+case class RecordField(value: ExprTerm, isOverride: Boolean = false) {
+
+  def contains(name: String): Boolean = value.contains(name)
+
+  def subst(name: String, replacement: ExprTerm): RecordField = {
+    RecordField(value.subst(name, replacement), isOverride)
+  }
+
+  override def toString: String = {
+    if isOverride then s"override ${value.toString}" else value.toString
+  }
 }
