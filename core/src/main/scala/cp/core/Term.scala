@@ -214,10 +214,10 @@ enum Term {
           }
         }
       }
-      
+
       case NativeProcedureCall(_, _) => ???
     }
-    
+
     inferredType.normalize
   }
 
@@ -562,22 +562,34 @@ enum Term {
     case Fixpoint(name, ty, recursiveBody) => {
       // In normalization mode, we do not unfold the fixpoint.
       // In full evaluation mode, we always unfold the fixpoint.
-      mode match {
-        case EvalMode.Normalize => {
-          // To avoid infinite unfolding of fixpoints, we assign a variable
-          //  representing the fixpoint itself in the environment.
-          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { 
-            implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
-          }
-        }
-        case EvalMode.Full => {
-          // In full evaluation mode, we always unfold the fixpoint.
-          // Therefore, we assign the fixpoint term itself in the environment.
-          env.withTermVar(name, this) { 
-            implicit newEnv => recursiveBody.eval(using newEnv)
-          }
+      
+      if !recursiveBody.contains(name) then {
+        // If the body does not contain the fixpoint variable,
+        //  then it is not really a recursive definition.
+        // We can just evaluate the body directly.
+        recursiveBody.eval
+      } else {
+        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) {
+          implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
         }
       }
+      
+//      mode match {
+//        case EvalMode.Normalize => {
+//          // To avoid infinite unfolding of fixpoints, we assign a variable
+//          //  representing the fixpoint itself in the environment.
+//          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { 
+//            implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
+//          }
+//        }
+//        case EvalMode.Full => {
+//          // In full evaluation mode, we always unfold the fixpoint.
+//          // Therefore, we assign the fixpoint term itself in the environment.
+//          env.withTermVar(name, this) { 
+//            implicit newEnv => recursiveBody.eval(using newEnv)
+//          }
+//        }
+//      }
     }
     
     case Projection(record, field) => {
@@ -711,16 +723,47 @@ enum Term {
   }
   
   def isValue: Boolean = this.isValue(Set.empty)
+  
+  def contains(name: String): Boolean = this match {
+    case Var(n) => n == name
+    case Typed(term, _) => term.contains(name)
+    case Primitive(_) => false
+    case Apply(func, arg) => func.contains(name) || arg.contains(name)
+    case CoeApply(coe, arg) => coe.contains(name) || arg.contains(name)
+    case TypeApply(term, _) => term.contains(name)
+    case Lambda(param, _, body) => param != name && body.contains(name)
+    case Coercion(param, _, body) => param != name && body.contains(name)
+    case TypeLambda(_, body) => body.contains(name)
+    case Fixpoint(fixName, _, body) => fixName != name && body.contains(name)
+    case Projection(record, _) => record.contains(name)
+    case Record(fields) => fields.values.exists(_.contains(name))
+    case Tuple(elements) => elements.exists(_.contains(name))
+    case Merge(left, right, _) => left.contains(name) || right.contains(name)
+    case Diff(left, right) => left.contains(name) || right.contains(name)
+    case IfThenElse(cond, thenBr, elseBr) =>
+      cond.contains(name) || thenBr.contains(name) || elseBr.contains(name)
+    // case Match(scrutinee, clauses) =>
+    //   scrutinee.contains(name) || clauses.exists(_.contains(name))
+    case ArrayLiteral(elements) => elements.exists(_.contains(name))
+    case FoldFixpoint(_, body) => body.contains(name)
+    case UnfoldFixpoint(_, term) => term.contains(name)
+    case Do(expr, body) => expr.contains(name) || body.contains(name)
+    case RefAddr(_, _) => false
+    case NativeFunctionCall(_, args) => args.exists(_.contains(name))
+    case NativeProcedureCall(_, args) => args.exists(_.contains(name))
+  }
 
   // Add parentheses where necessary to ensure correct parsing.
   def toAtomString: String = this match {
     case _: Lambda => s"($this)"
+    case _: Coercion => s"($this)"
     case _: TypeLambda => s"($this)"
     case _: Fixpoint => s"($this)"
     case _: IfThenElse => s"($this)"
     case _: Apply => s"($this)"
     case _: CoeApply => s"($this)"
     case _: TypeApply => s"($this)"
+    case _: NativeFunctionCall => s"($this)"
     case _ => this.toString
   }
 
@@ -777,13 +820,13 @@ enum Term {
 
     case NativeFunctionCall(function, args) => function.kind match {
       case NativeCallable.Kind.Default =>
-        s"$function(${args.map(_.toString).mkString(", ")})"
+        s"$function(${args.map(_.toAtomString).mkString(", ")})"
       case NativeCallable.Kind.Operator(symbol) =>
         if args.length == 2 then s"(${args.head.toAtomString} $symbol ${args(1).toAtomString})"
         else if args.length == 1 then s"($symbol${args.head.toAtomString})"
-        else s"$function(${args.map(_.toString).mkString(", ")})"
+        else s"$function(${args.map(_.toAtomString).mkString(", ")})"
       case NativeCallable.Kind.Function(name) =>
-        s"$name(${args.map(_.toString).mkString(", ")})"
+        s"$name(${args.map(_.toAtomString).mkString(", ")})"
     }
 
     case NativeProcedureCall(procedure, args) => {

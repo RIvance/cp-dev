@@ -291,20 +291,20 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             s"Cannot merge two overlapping traits: $leftType and $rightType"
           }
           val mergedDomain = (leftDomain, rightDomain) match {
-            case (Type.Primitive(LiteralType.TopType), _) => rightType
-            case (_, Type.Primitive(LiteralType.TopType)) => leftType
+            case (Type.Primitive(LiteralType.TopType), _) => rightDomain
+            case (_, Type.Primitive(LiteralType.TopType)) => leftDomain
             case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
           Term.Coercion(
-            param = "$self",
+            param = "self",
             paramType = mergedDomain,
             body = Term.Merge(
-              Term.Apply(leftTerm, Term.Var("$self")),
-              Term.Apply(rightTerm, Term.Var("$self")),
+              Term.Apply(leftTerm, Term.Var("self")),
+              Term.Apply(rightTerm, Term.Var("self")),
               MergeBias.Neutral
             ),
           ) -> Type.Trait(
-            domain = mergedDomain, 
+            domain = mergedDomain,
             codomain = Type.Intersection(leftCodomain, rightCodomain).normalize
           )
         }
@@ -432,7 +432,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 val (bodyTerm: Term, bodyType: Type) = body.synthesize
                 // Identify which fields in bodyType override fields in inheritCodomain
                 val overrideLabels: Set[String] = body.collectOverrideFields
-                
+
                 extension (ty: Type) def getFieldTypes: Map[String, Type] = ty match {
                   case Type.Record(fieldTypes) => fieldTypes
                   case Type.Intersection(lhs, rhs) =>
@@ -458,7 +458,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 }
                 // Prepare codomain for type intersection by removing overridden fields from inheritCodomain
                 // So that we don't have duplicate fields in the intersection.
-                // TODO: Maybe we can just move this logic to Type.Intersection. So that 
+                // TODO: Maybe we can just move this logic to Type.Intersection. So that
                 //  we can get rid of the stupid `prepareIntersection`.
                 extension (ty: Type) def prepareIntersection: Type = ty match {
                   case Type.Intersection(lhs, rhs) =>
@@ -493,14 +493,14 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                   ),
                   arg = Term.Apply(inheritTerm, Term.Var(selfName)),
                 )
-                
+
                 if !resultTerm.check(overriddenCodomain) then TypeNotMatch.raise {
                   s"Result term does not check against overridden codomain: $resultTerm : $overriddenCodomain"
                 }
-                
+
                 val traitTerm = Term.Coercion(selfName, selfType, resultTerm)
                 val traitType = Type.Trait(selfType, overriddenCodomain)
-                
+
                 if implTypeOpt.exists(implType => !(bodyType <:< implType)) then TypeNotMatch.raise {
                   s"Trait codomain $overriddenCodomain does not implement declared interface ${implTypeOpt.get}"
                 } else if !traitTerm.check(traitType) then TypeNotMatch.raise {
@@ -540,7 +540,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       traitType.normalize match {
         case Type.Trait(domain, codomain) => {
           if codomain <:< domain then {
-            Term.Fixpoint("$self", domain, Term.Apply(traitTerm, Term.Var("$self"))) -> codomain
+            Term.Fixpoint("self", domain, Term.Apply(traitTerm, Term.Var("self"))) -> codomain
           } else TypeNotMatch.raise {
             s"Trait codomain $codomain is not a subtype of its domain $domain"
           }
@@ -562,8 +562,8 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           val typeDiff = leftDomain.diff(rightDomain)
           // TODO: find out why we need to apply the leftTerm to self, instead of just leftTerm
           //  https://github.com/yzyzsun/CP-next/blob/1d19de29ff/src/CP/Typing.purs#L475
-          val coeBody = Term.Typed(Term.Apply(leftTerm, Term.Var("$self")), typeDiff)
-          (Term.Coercion("$self", leftDomain, coeBody), Type.Trait(leftDomain, typeDiff))
+          val coeBody = Term.Typed(Term.Apply(leftTerm, Term.Var("self")), typeDiff)
+          (Term.Coercion("self", leftDomain, coeBody), Type.Trait(leftDomain, typeDiff))
         }
         case _ => {
           val typeDiff = leftType.diff(rightType)
