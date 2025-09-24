@@ -200,8 +200,6 @@ enum Term {
           s"Too many arguments for native function: expected at most ${function.arity}, got ${args.length}"
         }
         val paramTypes = function.paramTypes
-        // TODO: for overloading-style merges, this might cause TypeNotMatch error
-        //  as the argument may only match one branch of the merge.
         args.zip(paramTypes).foreach { (arg, paramType) =>
           val argType = arg.infer
           if !(argType <:< paramType) then TypeNotMatch.raise {
@@ -449,7 +447,7 @@ enum Term {
       val argEval: Term = arg.eval
       // We always evaluate the function in normalization mode.
       val funcEval: Term = func.eval(using env)(using EvalMode.Normalize)
-      
+
       funcEval.infer match {
         // It is a coercion application if the function type is a Trait.
         case Type.Trait(_, _) => return Term.CoeApply(funcEval, argEval).eval(using env)(using mode)
@@ -528,7 +526,7 @@ enum Term {
       val argEval: Term = arg.eval
       val coeEval: Term = coe.eval
       (coeEval, argEval, mode) match {
-        case (Coercion(param, _, body), argValue, _) => 
+        case (Coercion(param, _, body), argValue, _) =>
           env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.CoeApply(coeEval, argEval)
       }
@@ -583,6 +581,27 @@ enum Term {
           case Some(value) => value.eval
           case None => NoSuchField.raise {
             s"Field '$field' does not exist in record: $recordEval"
+          }
+        }
+        // See <https://i.cs.hku.hk/~bruno/papers/yaozhu.pdf>
+        //  page 206. Reconciliation between eagerness and laziness
+        // TODO: current implementation cannot handle mutual recursion.
+        //  (i.e., field A contains field B and field B contains field A)
+        case Fixpoint(name, ty, Record(fields)) => {
+          // For a projection on a fixpoint whose body is a record,
+          //  if the field does not contains the fixpoint variable,
+          //  we can safely return the field value directly.
+          //  otherwise, we unfold the fixpoint once
+          //  (i.e., replace the fixpoint variable with the fixpoint itself)
+          //  and then return the field value.
+          fields.get(field) match {
+            case Some(value) if !value.contains(name) => value.eval
+            case Some(value) => env.withTermVar(name, recordEval) {
+              implicit newEnv => value.eval(using newEnv)
+            }
+            case None => NoSuchField.raise {
+              s"Field '$field' does not exist in record: $recordEval"
+            }
           }
         }
         case _ => Term.Projection(recordEval, field)
@@ -642,9 +661,9 @@ enum Term {
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval
       (conditionEval, mode) match {
-        case (Primitive(Literal.BoolValue(true)), EvalMode.Normalize | EvalMode.Full) => 
+        case (Primitive(Literal.BoolValue(true)), EvalMode.Normalize | EvalMode.Full) =>
           thenBranch.eval
-        case (Primitive(Literal.BoolValue(false)), EvalMode.Normalize | EvalMode.Full) => 
+        case (Primitive(Literal.BoolValue(false)), EvalMode.Normalize | EvalMode.Full) =>
           elseBranch.eval
         case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
       }
