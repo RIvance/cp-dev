@@ -295,15 +295,19 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             case (_, Type.Primitive(LiteralType.TopType)) => leftDomain
             case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
-          Term.Coercion(
-            param = "self",
-            paramType = mergedDomain,
-            body = Term.Merge(
-              Term.Apply(leftTerm, Term.Var("self")),
-              Term.Apply(rightTerm, Term.Var("self")),
-              MergeBias.Neutral
-            ),
-          ) -> Type.Trait(
+          // TODO:
+          //  Find out why the original implementation used the following coercion term as result:
+          //  Term.Coercion(
+          //    param = "self",
+          //    paramType = mergedDomain,
+          //    body = Term.Merge(
+          //      Term.Apply(leftTerm, Term.Var("self")),
+          //      Term.Apply(rightTerm, Term.Var("self")),
+          //      MergeBias.Neutral
+          //    ),
+          //  )
+          //  see 
+          Term.Merge(leftTerm, rightTerm) -> Type.Trait(
             domain = mergedDomain,
             codomain = Type.Intersection(leftCodomain, rightCodomain).normalize
           )
@@ -540,7 +544,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       traitType.normalize match {
         case Type.Trait(domain, codomain) => {
           if codomain <:< domain then {
-            Term.Fixpoint("self", domain, Term.Apply(traitTerm, Term.Var("self"))) -> codomain
+            Term.Fixpoint("$self", domain, Term.Apply(traitTerm.eval, Term.Var("$self"))) -> codomain
           } else TypeNotMatch.raise {
             s"Trait codomain $codomain is not a subtype of its domain $domain"
           }

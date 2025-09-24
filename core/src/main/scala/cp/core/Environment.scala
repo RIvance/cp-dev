@@ -28,27 +28,31 @@ case class Environment(
     f(copy(termVars = termVars ++ vars.toMap))
   }
 
-  def freshTypeName: String = {
-    Iterator.from(0).map(n => s"$$Type$$$n").find(!typeVars.contains(_)).get
+  def freshTypeName(bodies: Type*): String = {
+    Iterator.from(0).map(n => s"$$Type$$$n").find {
+      name => !typeVars.contains(name) && !bodies.exists(_.contains(name))
+    }.get
   }
 
-  def freshVarName: String = {
-    Iterator.from(0).map(n => s"$$value$$$n").find(!typeVars.contains(_)).get
+  def freshVarName(bodies: Term*): String = {
+    Iterator.from(0).map(n => s"$$value$$$n").find {
+      name => !termVars.contains(name) && !bodies.exists(_.contains(name))
+    }.get
   }
 
-  def withFreshTypeVar[T](f: (Type.Var, Environment) => T): T = {
-    val name = freshTypeName
+  def withFreshTypeVar[T](bodies: Type*)(f: (Type.Var, Environment) => T): T = {
+    val name = freshTypeName(bodies*)
     val freshVar: Type.Var = Type.Var(name)
     f(freshVar, addTypeVar(name, Type.Var(name)))
   }
 
-  def withFreshTypeBinding[T](ty: Type)(f: (Type.Var, Environment) => T): T = {
-    val name = freshTypeName
+  def withFreshTypeBinding[T](ty: Type)(bodies: Type*)(f: (Type.Var, Environment) => T): T = {
+    val name = freshTypeName(bodies*)
     f(Type.Var(name), addTypeVar(name, ty))
   }
 
-  def withFreshTermVar[T](ty: Type)(f: (Term.Var, Environment) => T): T = {
-    val name = freshVarName
+  def withFreshTermVar[T](ty: Type)(bodies: Term*)(f: (Term.Var, Environment) => T): T = {
+    val name = freshVarName(bodies*)
     val freshVar: Term.Var = Term.Var(name)
     f(freshVar, addTermVar(name, Term.Typed(Term.Var(name), ty)))
   }

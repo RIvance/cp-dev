@@ -121,7 +121,8 @@ enum Type {
       case (Record(fields), Primitive(UnitType)) if fields.isEmpty => true
 
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
-        env.withFreshTypeVar { (freshVar, newEnv) =>
+        val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
+        env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar).unify(codomain2.subst(param2, freshVar)) && {
             constraints1.size == constraints2.size && constraints1.forall { c1 =>
@@ -158,7 +159,7 @@ enum Type {
       case (Ref(ty1), Ref(ty2)) => ty1.unify(ty2)
 
       case (Fixpoint(name1, body1), Fixpoint(name2, body2)) => {
-        env.withFreshTypeVar { (freshVar, newEnv) =>
+        env.withFreshTypeVar(body1, body2) { (freshVar, newEnv) =>
           given Environment = newEnv
           body1.subst(name1, freshVar).unify(body2.subst(name2, freshVar))
         }
@@ -214,7 +215,8 @@ enum Type {
       }
       
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
-        env.withFreshTypeVar { (freshVar, newEnv) =>
+        val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
+        env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) <:< codomain2.subst(param2, freshVar) && {
             // Since parameter are contravariant, the constraints on `this` should be
@@ -452,7 +454,8 @@ enum Type {
         // TODO: We need to check whether it's okay to use top type here
         // No disjointness constraints, we need to check the bodies
         val disjoint = Primitive(TopType) // A type that is guaranteed to be disjoint with any other type
-        env.withFreshTypeBinding(disjoint) { (freshVar, newEnv) =>
+        val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
+        env.withFreshTypeBinding(disjoint)(typesToCheck*) { (freshVar, newEnv) =>
           given Environment = newEnv
           codomain1.subst(param1, freshVar) disjointWith codomain2.subst(param2, freshVar)
         }
@@ -521,7 +524,8 @@ enum Type {
     }
 
     case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
-      env.withFreshTypeVar { (freshVar, newEnv) =>
+      val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
+      env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
         given Environment = newEnv
         val codomainDiff = codomain1.subst(param1, freshVar).diff(codomain2.subst(param2, freshVar)).normalize
         if constraints2.forall(_.verify(codomainDiff)) then this
@@ -555,14 +559,14 @@ enum Type {
     case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) 
       if domain1 unify domain2 => 
       Arrow(domain1, codomain1.merge(codomain2).normalize)
-    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) 
-      if domain1 unify domain2 => 
-      Trait(domain1, codomain1.merge(codomain2).normalize)
+    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) =>
+      Trait(Intersection(domain1, domain2).normalize, codomain1.merge(codomain2).normalize)
     case (Record(fields1), Record(fields2)) 
       if fields1.keySet == fields2.keySet =>
       Record(fields1.map { case (label, ty1) => label -> ty1.merge(fields2(label)).normalize })
     case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
-      env.withFreshTypeVar { (freshVar, newEnv) =>
+      val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
+      env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
         given Environment = newEnv
         Forall(
           freshVar.name,
@@ -602,6 +606,24 @@ enum Type {
       }
     }
     case _ => None
+  }
+  
+  def contains(name: String): Boolean = this match {
+    case Var(n) => n == name
+    case Primitive(_) => false
+    case Arrow(domain, codomain) => domain.contains(name) || codomain.contains(name)
+    case Trait(domain, codomain) => domain.contains(name) || codomain.contains(name)
+    case Forall(param, codomain, constraints) => param == name || {
+      codomain.contains(name) || constraints.exists(_.subject.contains(name))
+    }
+    case Intersection(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
+    case Union(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
+    case Record(fields) => fields.values.exists(_.contains(name))
+    case Tuple(elements) => elements.exists(_.contains(name))
+    case Fixpoint(param, body) => param != name && body.contains(name)
+    case Ref(ty) => ty.contains(name)
+    case Apply(func, arg) => func.contains(name) || arg.contains(name)
+    case Diff(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
   }
   
   def testApplicationReturn(argType: Type)(using env: Environment): Option[Type] = this match {

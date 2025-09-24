@@ -200,6 +200,8 @@ enum Term {
           s"Too many arguments for native function: expected at most ${function.arity}, got ${args.length}"
         }
         val paramTypes = function.paramTypes
+        // TODO: for overloading-style merges, this might cause TypeNotMatch error
+        //  as the argument may only match one branch of the merge.
         args.zip(paramTypes).foreach { (arg, paramType) =>
           val argType = arg.infer
           if !(argType <:< paramType) then TypeNotMatch.raise {
@@ -448,6 +450,12 @@ enum Term {
       // We always evaluate the function in normalization mode.
       val funcEval: Term = func.eval(using env)(using EvalMode.Normalize)
       
+      funcEval.infer match {
+        // It is a coercion application if the function type is a Trait.
+        case Type.Trait(_, _) => return Term.CoeApply(funcEval, argEval).eval(using env)(using mode)
+        case _ => () // continue
+      }
+      
       // In normalization mode, 
       //  when argument is a pure value term (e.g. primitives, pure lambdas, etc.),
       //  we can perform beta-reduction.
@@ -484,7 +492,7 @@ enum Term {
             function.call(evaluatedArgs)
           } else {
             // Otherwise, typecheck existing args and return a new partially applied native function call.
-            args.zip(function.paramTypes).foreach { (arg, paramType) =>
+            evaluatedArgs.zip(function.paramTypes).foreach { (arg, paramType) =>
               val argType = arg.infer
               if !(argType <:< paramType) then TypeNotMatch.raise {
                 s"Expected argument type: ${paramType}, but got: ${argType}"
@@ -516,13 +524,11 @@ enum Term {
     }
     
     case CoeApply(coe, arg) => {
-      // Similar to Apply.
+      // Similar to `Apply`.
       val argEval: Term = arg.eval
       val coeEval: Term = coe.eval
       (coeEval, argEval, mode) match {
-        case (Coercion(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => 
-          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
-        case (Coercion(param, _, body), argValue, EvalMode.Full) => 
+        case (Coercion(param, _, body), argValue, _) => 
           env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.CoeApply(coeEval, argEval)
       }
@@ -560,36 +566,14 @@ enum Term {
     }
     
     case Fixpoint(name, ty, recursiveBody) => {
-      // In normalization mode, we do not unfold the fixpoint.
-      // In full evaluation mode, we always unfold the fixpoint.
-      
       if !recursiveBody.contains(name) then {
         // If the body does not contain the fixpoint variable,
         //  then it is not really a recursive definition.
         // We can just evaluate the body directly.
         recursiveBody.eval
-      } else {
-        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) {
-          implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
-        }
+      } else env.withTermVar(name, Term.Typed(Term.Var(name), ty)) {
+        implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
       }
-      
-//      mode match {
-//        case EvalMode.Normalize => {
-//          // To avoid infinite unfolding of fixpoints, we assign a variable
-//          //  representing the fixpoint itself in the environment.
-//          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { 
-//            implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
-//          }
-//        }
-//        case EvalMode.Full => {
-//          // In full evaluation mode, we always unfold the fixpoint.
-//          // Therefore, we assign the fixpoint term itself in the environment.
-//          env.withTermVar(name, this) { 
-//            implicit newEnv => recursiveBody.eval(using newEnv)
-//          }
-//        }
-//      }
     }
     
     case Projection(record, field) => {
@@ -641,11 +625,20 @@ enum Term {
           }
           Term.Tuple(mergedElements)
         }
-        // TODO: merge two traits (coercions)
+        case (Coercion(paramL, paramTypeL, bodyL), Coercion(paramR, paramTypeR, bodyR)) => {
+          val param = if paramL == paramR then paramL else env.freshVarName(bodyL, bodyR)
+          val paramType = paramTypeL merge paramTypeR
+          env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { implicit newEnv =>
+            val body = Term.Merge(bodyL, bodyR).eval(using newEnv)
+            Term.Coercion(param, paramType, body)
+          }
+        }
         case _ => Term.Merge(leftEval, rightEval, MergeBias.Neutral)
       }
     }
-    
+
+    case Diff(_, _) => ???
+
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval
       (conditionEval, mode) match {
@@ -656,16 +649,16 @@ enum Term {
         case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
       }
     }
-    
+
     case ArrayLiteral(elements) => {
       val evaluatedElements = elements.map(_.eval)
       Term.ArrayLiteral(evaluatedElements)
     }
-    
+
     case FoldFixpoint(_, _) => ???
-    
+
     case UnfoldFixpoint(_, _) => ???
-    
+
     case Do(expr, body) => {
       // In normalization mode, we do not discard the value of expr after evaluation.
       //  This is to prevent discarding side effects in expr.
@@ -679,21 +672,27 @@ enum Term {
         case EvalMode.Full => body.eval
       }
     }
-    
+
     case RefAddr(_, _) => this
-    
+
     case NativeFunctionCall(function, args) => {
       // The evaluation of native function calls are similar to Apply.
       //  As native functions are only implemented to handle pure values,
       //  we only perform beta-reduction when all arguments are fully evaluated to pure values.
       val evaluatedArgs: Seq[Term] = args.map(_.eval)
+      // Check the argument types against the function's parameter types.
+      function.paramTypes.zip(evaluatedArgs).foreach { (paramType, arg) =>
+        val argType = arg.infer
+        if !(argType <:< paramType) then TypeNotMatch.raise {
+          s"Expected argument type: ${paramType}, but got: ${argType}"
+        }
+      }
       if evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == function.arity then {
         function.call(evaluatedArgs)
       } else {
         Term.NativeFunctionCall(function, evaluatedArgs)
       }
     }
-    
     case NativeProcedureCall(procedure, args) => {
       // The evaluation of native procedure calls are similar to Apply.
       //  As native procedures may have side effects,
@@ -731,10 +730,11 @@ enum Term {
     case Apply(func, arg) => func.contains(name) || arg.contains(name)
     case CoeApply(coe, arg) => coe.contains(name) || arg.contains(name)
     case TypeApply(term, _) => term.contains(name)
-    case Lambda(param, _, body) => param != name && body.contains(name)
-    case Coercion(param, _, body) => param != name && body.contains(name)
+    // The bound variable shadows the name, so we do not look into the body.
+    case Lambda(param, _, body) => param == name || body.contains(name)
+    case Coercion(param, _, body) => param == name || body.contains(name)
     case TypeLambda(_, body) => body.contains(name)
-    case Fixpoint(fixName, _, body) => fixName != name && body.contains(name)
+    case Fixpoint(fixName, _, body) => fixName == name || body.contains(name)
     case Projection(record, _) => record.contains(name)
     case Record(fields) => fields.values.exists(_.contains(name))
     case Tuple(elements) => elements.exists(_.contains(name))
