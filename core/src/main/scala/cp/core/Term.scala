@@ -2,7 +2,7 @@ package cp.core
 
 import scala.util.{Failure, Success, Try}
 import cp.error.CoreErrorKind.*
-import cp.util.Recoverable
+import cp.util.{Graph, Recoverable}
 
 enum Term {
   
@@ -445,8 +445,32 @@ enum Term {
     case Apply(func, arg) => {
       // In all modes, we first evaluate the function and argument.
       val argEval: Term = arg.eval
-      // We always evaluate the function in normalization mode.
-      val funcEval: Term = func.eval(using env)(using EvalMode.Normalize)
+      // If current mode is Full, we unfold the inner fixpoints once.
+      // Consider evaluating the following example:
+      //  Step 1:
+      //   ```
+      //   (fix $self = {
+      //      isEven = λ(n: Int) -> (if n == 0 then true else $self.isOdd(n - 1)); 
+      //      isOdd  = λ(n: Int) -> (if n == 0 then false else $self.isEven(n - 1));
+      //    }).isEven 42
+      //   ```
+      //   Here, as the function part is a projection from a fixpoint,
+      //    we need to unfold the fixpoint once to get the actual function body.
+      //
+      //  Step 2:
+      //    ```
+      //    (λ(n: Int) -> if n == 0 then true else (fix $self = { ... }).isOdd(n - 1)) 42
+      //    ```
+      //   After the unfolding, we can perform beta-reduction.
+      //
+      //  Step 3:
+      //    ```
+      //    if n == 0 then true else (fix $self = { ... }).isOdd(41)
+      //    ```
+      //   Now, it is safe to further unfold the inner fixpoint (one-time) when evaluating the else branch.
+      //
+      val evalMode = if mode == EvalMode.Full then EvalMode.Unfold else EvalMode.Normalize
+      val funcEval: Term = func.eval(using env)(using evalMode)
 
       funcEval.infer match {
         // It is a coercion application if the function type is a Trait.
@@ -472,7 +496,7 @@ enum Term {
           }
         }
           
-        case (Lambda(param, _, body), argValue, EvalMode.Normalize) if argValue.isValue => {
+        case (Lambda(param, _, body), argValue, _) if argValue.isValue => {
           env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         }
         
@@ -537,7 +561,7 @@ enum Term {
       val normalizedTyArg = tyArg.normalize
       (termEval, mode) match {
         // It is always safe to perform type-level beta-reduction.
-        case (TypeLambda(param, body), EvalMode.Normalize | EvalMode.Full) => 
+        case (TypeLambda(param, body), _) => 
           env.withTypeVar(param, normalizedTyArg) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.TypeApply(termEval, normalizedTyArg)
       }
@@ -585,19 +609,32 @@ enum Term {
         }
         // See <https://i.cs.hku.hk/~bruno/papers/yaozhu.pdf>
         //  page 206. Reconciliation between eagerness and laziness
-        // TODO: current implementation cannot handle mutual recursion.
-        //  (i.e., field A contains field B and field B contains field A)
         case Fixpoint(name, ty, Record(fields)) => {
-          // For a projection on a fixpoint whose body is a record,
-          //  if the field does not contains the fixpoint variable,
-          //  we can safely return the field value directly.
-          //  otherwise, we unfold the fixpoint once
-          //  (i.e., replace the fixpoint variable with the fixpoint itself)
-          //  and then return the field value.
-          fields.get(field) match {
+          // We check whether there's a mutual recursion between the fields using graph analysis.
+          lazy val initGraph = Graph.directed[String].addVertices(fields.keySet)
+          lazy val graph = fields.foldLeft(initGraph) { (graph0, entry) =>
+            val (fieldName, fieldTerm) = entry
+            fields.keySet.foldLeft(graph0) { (graph1, otherFieldName) =>
+              if fieldTerm.contains(Projection(Var(name), otherFieldName)) then {
+                graph1.addEdge(fieldName, otherFieldName)
+              } else graph1
+            }
+          }
+          if mode == EvalMode.Normalize && graph.isInCycle(field) then {
+            // If the field is in a cycle, we cannot safely unfold the fixpoint.
+            //  We return the projection term as is to avoid non-termination.
+            Term.Projection(recordEval, field)
+          }
+          // For a projection on a fixpoint whose body is a record:
+          else fields.get(field) match {
+            // If the field does not contain the fixpoint variable,
+            //  we can safely return the field value directly.
             case Some(value) if !value.contains(name) => value.eval
-            case Some(value) => env.withTermVar(name, recordEval) {
-              implicit newEnv => value.eval(using newEnv)
+            // Otherwise, we unfold the fixpoint once
+            //  (i.e., replace the fixpoint variable with the fixpoint itself)
+            //  and then return the field value.
+            case Some(value) => env.withTermVar(name, recordEval) { implicit newEnv => 
+              value.eval(using newEnv)(using if mode == EvalMode.Unfold then EvalMode.Normalize else mode)
             }
             case None => NoSuchField.raise {
               s"Field '$field' does not exist in record: $recordEval"
@@ -661,9 +698,9 @@ enum Term {
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval
       (conditionEval, mode) match {
-        case (Primitive(Literal.BoolValue(true)), EvalMode.Normalize | EvalMode.Full) =>
+        case (Primitive(Literal.BoolValue(true)), _) =>
           thenBranch.eval
-        case (Primitive(Literal.BoolValue(false)), EvalMode.Normalize | EvalMode.Full) =>
+        case (Primitive(Literal.BoolValue(false)), _) =>
           elseBranch.eval
         case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
       }
@@ -687,7 +724,7 @@ enum Term {
       //  So that even if the value of expr is discarded, the side effects are preserved.
       val exprEval: Term = expr.eval
       mode match {
-        case EvalMode.Normalize => Term.Do(exprEval, body.eval)
+        case EvalMode.Normalize | EvalMode.Unfold => Term.Do(exprEval, body.eval)
         case EvalMode.Full => body.eval
       }
     }
@@ -750,10 +787,10 @@ enum Term {
     case CoeApply(coe, arg) => coe.contains(name) || arg.contains(name)
     case TypeApply(term, _) => term.contains(name)
     // The bound variable shadows the name, so we do not look into the body.
-    case Lambda(param, _, body) => param == name || body.contains(name)
-    case Coercion(param, _, body) => param == name || body.contains(name)
+    case Lambda(param, _, body) => param != name && body.contains(name)
+    case Coercion(param, _, body) => param != name && body.contains(name)
     case TypeLambda(_, body) => body.contains(name)
-    case Fixpoint(fixName, _, body) => fixName == name || body.contains(name)
+    case Fixpoint(fixName, _, body) => fixName != name && body.contains(name)
     case Projection(record, _) => record.contains(name)
     case Record(fields) => fields.values.exists(_.contains(name))
     case Tuple(elements) => elements.exists(_.contains(name))
@@ -770,6 +807,37 @@ enum Term {
     case RefAddr(_, _) => false
     case NativeFunctionCall(_, args) => args.exists(_.contains(name))
     case NativeProcedureCall(_, args) => args.exists(_.contains(name))
+  }
+  
+  def contains(term: Term): Boolean = this match {
+    // TODO: We should use unification here to check for structural equality.
+    case _ if this == term => true
+    case Var(_) => false
+    case Typed(t, _) => t.contains(term)
+    case Primitive(_) => false
+    case Apply(func, arg) => func.contains(term) || arg.contains(term)
+    case CoeApply(coe, arg) => coe.contains(term) || arg.contains(term)
+    case TypeApply(t, _) => t.contains(term)
+    case Lambda(_, _, body) => body.contains(term)
+    case Coercion(_, _, body) => body.contains(term)
+    case TypeLambda(_, body) => body.contains(term)
+    case Fixpoint(_, _, body) => body.contains(term)
+    case Projection(record, _) => record.contains(term)
+    case Record(fields) => fields.values.exists(_.contains(term))
+    case Tuple(elements) => elements.exists(_.contains(term))
+    case Merge(left, right, _) => left.contains(term) || right.contains(term)
+    case Diff(left, right) => left.contains(term) || right.contains(term)
+    case IfThenElse(cond, thenBr, elseBr) =>
+      cond.contains(term) || thenBr.contains(term) || elseBr.contains(term)
+    // case Match(scrutinee, clauses) =>
+    //   scrutinee.contains(term) || clauses.exists(_.contains(term))
+    case ArrayLiteral(elements) => elements.exists(_.contains(term))
+    case FoldFixpoint(_, body) => body.contains(term)
+    case UnfoldFixpoint(_, t) => t.contains(term)
+    case Do(expr, body) => expr.contains(term) || body.contains(term)
+    case RefAddr(_, _) => false
+    case NativeFunctionCall(_, args) => args.exists(_.contains(term))
+    case NativeProcedureCall(_, args) => args.exists(_.contains(term))
   }
 
   // Add parentheses where necessary to ensure correct parsing.
@@ -820,12 +888,14 @@ enum Term {
       case MergeBias.Right => s"$left <, $right"
     }
 
-    case IfThenElse(condition, thenBranch, elseBranch) => {
-      s"if $condition then $thenBranch else $elseBranch"
-    }
+    case Diff(left, right) => s"$left \\ $right"
 
     // case Match(scrutinee, clauses) =>
     //   s"match $scrutinee {\n${clauses.map(clause => s"  $clause").mkString("\n")}\n}"
+
+    case IfThenElse(condition, thenBranch, elseBranch) => {
+      s"if $condition then $thenBranch else $elseBranch"
+    }
 
     case ArrayLiteral(elements) => s"[${elements.map(_.toString).mkString(", ")}]"
 
@@ -855,7 +925,7 @@ enum Term {
 }
 
 enum EvalMode {
-  case Normalize, Full
+  case Normalize, Unfold, Full
 }
 
 enum MergeBias {

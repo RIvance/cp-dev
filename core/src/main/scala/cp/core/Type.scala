@@ -613,7 +613,7 @@ enum Type {
     case Primitive(_) => false
     case Arrow(domain, codomain) => domain.contains(name) || codomain.contains(name)
     case Trait(domain, codomain) => domain.contains(name) || codomain.contains(name)
-    case Forall(param, codomain, constraints) => param == name || {
+    case Forall(param, codomain, constraints) => param != name && {
       codomain.contains(name) || constraints.exists(_.subject.contains(name))
     }
     case Intersection(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
@@ -673,7 +673,7 @@ enum Type {
     
     case Arrow(domain, codomain) => s"${domain.toAtomString} -> ${codomain.toString}"
     
-    case Trait(domain, codomain) => s"${domain.toAtomString} ~> ${codomain.toString}"
+    case Trait(domain, codomain) => s"${domain.toAtomString} => ${codomain.toString}"
     
     case Forall(param, codomain, constraints) => {
       val constraintsStr = if constraints.isEmpty then ""

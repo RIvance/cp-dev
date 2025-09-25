@@ -166,4 +166,71 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       )
     }
   }
+  
+  test("synth trait mutual recursion") {
+    module("""
+      type Even = { isEven : Int -> Bool };
+      type Odd = { isOdd : Int -> Bool };
+      
+      def even = trait [self: Odd] => {
+        isEven (n : Int) = if n == 0 then true else self.isOdd(n - 1)
+      };
+      
+      def odd = trait [self: Even] => {
+        isOdd (n : Int) = if n == 0 then false else self.isEven(n - 1)
+      };
+    """) { implicit env =>
+      "(new even ,, odd).isEven(42)" >>> (BoolValue(true).toTerm, BoolType.toType)
+      "(new even ,, odd).isOdd(42)" >>> (BoolValue(false).toTerm, BoolType.toType)
+      "(new even ,, odd).isEven(41)" >>> (BoolValue(false).toTerm, BoolType.toType)
+      "(new even ,, odd).isOdd(41)" >>> (BoolValue(true).toTerm, BoolType.toType)
+    }
+  }
+  
+  test("synth trait with sort") {
+    module("""
+      type Eval = { eval : Int };
+      type Print = { print : String };
+      
+      type AddSig<Exp> = {
+        Lit: Int -> Exp;
+        Add: Exp -> Exp -> Exp;
+      };
+      
+      evalAdd = trait implements AddSig<Eval> => {
+        (Lit     n).eval = n;
+        (Add e1 e2).eval = e1.eval + e2.eval;
+      };
+      
+      printAdd = trait implements AddSig<Print> => {
+        (Lit     n).print = toString n;
+        (Add e1 e2).print = "(" ++ e1.print ++ " + " ++ e2.print ++ ")";
+      };
+      
+      expAdd Exp = trait [self : AddSig<Exp>] => {
+        exp = open self in Add (Lit 4) (Lit 8);
+      };
+      
+      type MulSig<Exp> = AddSig<Exp> & {
+        Mul : Exp -> Exp -> Exp;
+      };
+      
+      evalMul = trait implements MulSig<Eval> inherits evalAdd => {
+        (Mul e1 e2).eval = e1.eval * e2.eval;
+      };
+      
+      printMul = trait implements MulSig<Print> inherits printAdd => {
+        (Mul e1 e2).print = "(" ++ e1.print ++ " * " ++ e2.print ++ ")";
+      };
+      
+      expMul Exp = trait [self : MulSig<Exp>] inherits expAdd @Exp => {
+        override exp = open self in Mul super.exp (Lit 4);
+      };
+    """) { implicit env =>
+      """
+        let e = new evalMul ,, printMul ,, expMul[Eval & Print] in
+        e.exp.print ++ " is " ++ e.exp.eval.toString
+      """ >>> StringValue("((4 + 8) * 4) is 48").toTerm
+    }
+  }
 }

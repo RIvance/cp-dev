@@ -544,7 +544,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       traitType.normalize match {
         case Type.Trait(domain, codomain) => {
           if codomain <:< domain then {
-            Term.Fixpoint("$self", domain, Term.Apply(traitTerm.eval, Term.Var("$self"))) -> codomain
+            Term.Fixpoint("$self", domain, Term.Apply(traitTerm, Term.Var("$self"))) -> codomain
           } else TypeNotMatch.raise {
             s"Trait codomain $codomain is not a subtype of its domain $domain"
           }

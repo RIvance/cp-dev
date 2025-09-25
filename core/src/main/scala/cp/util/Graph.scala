@@ -25,6 +25,10 @@ class Graph[T](
       Graph(isDirected, adjacencyList + (vertex -> Set.empty[T]))
     }
   }
+  
+  def addVertices(vertices: Iterable[T]): Graph[T] = {
+    vertices.foldLeft(this) { (graph, vertex) => graph.addVertex(vertex) }
+  }
 
   /**
    * Adds an edge between two vertices in the graph, returning a new graph.
@@ -82,6 +86,8 @@ class Graph[T](
   def edges: List[(T, T)] = adjacencyList.flatMap {
     case (v1, neighbors) => neighbors.map(v2 => (v1, v2))
   }.toList
+  
+  def hasCycle: Boolean = vertices.exists(isInCycle)
 
   /**
    * Checks if a specific node is part of a cycle.

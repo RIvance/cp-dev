@@ -118,4 +118,42 @@ enum ExprType extends OptionalSpanned[ExprType] {
     
     synthesizedType.normalize
   }
+
+  override def toString: String = this match {
+    case Primitive(ty) => ty.toString
+    case Var(name) => name
+    case Arrow(domain, codomain) => s"($domain) -> $codomain"
+    case Forall(paramName, codomain, constraints) =>
+      val consStr = if constraints.nonEmpty then
+        constraints.map {
+          case Constraint.Disjoint(_, disjoint) => s"disjoint $disjoint"
+          case Constraint.UpperBound(_, upperBound) => s"<: $upperBound"
+          case Constraint.LowerBound(_, lowerBound) => s">: $lowerBound"
+        }.mkString(", ") + " "
+      else ""
+      s"forall $paramName. $consStr$codomain"
+    case Intersection(lhs, rhs) => s"($lhs & $rhs)"
+    case Union(lhs, rhs) => s"($lhs | $rhs)"
+    case Record(fields) =>
+      val fieldsStr = fields.map { case (name, ty) => s"$name: $ty" }.mkString(", ")
+      s"{ $fieldsStr }"
+    case Tuple(elements) =>
+      val elementsStr = elements.map(_.toString).mkString(", ")
+      s"($elementsStr)"
+    case Ref(ty) => s"&$ty"
+    case Apply(func, arg) => s"$func[$arg]"
+    case Trait(inType, outType) =>
+      inType match {
+        case Some(inTy) => s"Trait[$inTy] -> $outType"
+        case None => s"Trait -> $outType"
+      }
+    case Sort(inType, outType) =>
+      outType match {
+        case Some(outTy) => s"Sort[$inType] -> $outTy"
+        case None => s"Sort[$inType]"
+      }
+    case Array(elementType) => s"Array[$elementType]"
+    case Diff(lhs, rhs) => s"($lhs \\ $rhs)"
+    case Span(ty, _) => ty.toString
+  }
 }

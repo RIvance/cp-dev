@@ -218,17 +218,26 @@ class Visitor extends CpParserBaseVisitor[
       case ctx: CompExprRefContext => visitCompExprRef(ctx)
     }
   }
+  
+  extension (func: ExprTerm) def foldApplication(args: List[ExprTerm | ExprType]): ExprTerm = {
+    args.foldLeft(func) {
+      case (ExprTerm.Apply(fn, existingArgs), arg: ExprTerm) => ExprTerm.Apply(fn, existingArgs :+ arg)
+      case (current, arg: ExprTerm) => ExprTerm.Apply(current, List(arg))
+      case (ExprTerm.TypeApply(term, existingTyArgs), arg: ExprType) => ExprTerm.TypeApply(term, existingTyArgs :+ arg)
+      case (current, arg: ExprType) => ExprTerm.TypeApply(current, List(arg))
+    }
+  }
 
   override def visitCompCtorApp(ctx: CompCtorAppContext): ExprTerm = {
     val ctor = ctx.ctorName.getText
-    val args = ctx.args.asScala.map(_.visit).toList
-    ExprTerm.Apply(ExprTerm.Var(ctor), args).withSpan(ctx)
+    val args: List[ExprTerm | ExprType] = ctx.args.asScala.map(_.visit).toList
+    ExprTerm.Var(ctor).foldApplication(args).withSpan(ctx)
   }
 
   override def visitCompExprApp(ctx: CompExprAppContext): ExprTerm = {
     val func = ctx.excludeExpr.visit
-    val args = ctx.args.asScala.map(_.visit).toList
-    ExprTerm.Apply(func, args).withSpan(ctx)
+    val args: List[ExprTerm | ExprType] = ctx.args.asScala.map(_.visit).toList
+    func.foldApplication(args).withSpan(ctx)
   }
 
   override def visitCompExprLambda(ctx: CompExprLambdaContext): ExprTerm = {
@@ -454,9 +463,9 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   extension (ctx: SpineArgContext) {
-    def visit: ExprTerm = ctx match {
+    def visit: ExprTerm | ExprType = ctx match {
       case term: SpineArgTermContext => term.expr.visit
-      case ty: SpineArgTypeContext => ??? // TODO: Type arguments become type applications
+      case ty: SpineArgTypeContext => ty.ty.visit
     }
   }
 
@@ -586,8 +595,13 @@ class Visitor extends CpParserBaseVisitor[
 
   extension (ctx: RecordContext) def visit: ExprTerm = {
     val fields = ctx.entities.asScala.map {
-      case field: RecordFieldContext => 
-        field.name.getText -> RecordField(field.value.visit, Option(field.Override).isDefined)
+      case field: RecordFieldContext => {
+        val fieldName = field.name.getText
+        val params = field.params.asScala.flatMap(_.visit).toSeq
+        val value = field.value.visit
+        val fieldTerm = if params.isEmpty then value else value.foldLambda(params)
+        field.name.getText -> RecordField(fieldTerm, Option(field.Override).isDefined)
+      }
       // TODO: Handle other record entity types as needed
       case _ => ("unknown", RecordField(ExprTerm.unit))
     }.toMap

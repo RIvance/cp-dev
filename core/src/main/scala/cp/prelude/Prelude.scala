@@ -57,7 +57,7 @@ object Prelude {
     lazy val subInt: NativeFunction = NativeFunction(
       returnType = IntType.toType,
       paramTypes = Seq(IntType.toType, IntType.toType),
-      kind = NativeCallable.Kind.Operator("+"),
+      kind = NativeCallable.Kind.Operator("-"),
       implementation = {
         case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
           IntValue(a - b).toTerm
@@ -69,7 +69,7 @@ object Prelude {
     lazy val subFloat: NativeFunction = NativeFunction(
       returnType = FloatType.toType,
       paramTypes = Seq(FloatType.toType, FloatType.toType),
-      kind = NativeCallable.Kind.Operator("+"),
+      kind = NativeCallable.Kind.Operator("-"),
       implementation = {
         case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
           FloatValue(a - b).toTerm
