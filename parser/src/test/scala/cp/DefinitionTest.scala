@@ -116,31 +116,31 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
   
-//  test("synth merge") {
-//    module("""
-//      def double(value: Int) = value * 2;
-//      def isHello(str: String) = if str == "hello" then true else false;
-//    """) { implicit env =>
-//      "(double ,, isHello)(42)" >>> (IntValue(84).toTerm, IntType.toType)
-//      "(double ,, isHello)(\"hello\")" >>> (BoolValue(true).toTerm, BoolType.toType)
-//      "(double ,, isHello)(\"world\")" >>> (BoolValue(false).toTerm, BoolType.toType)
-//      "(double ,, isHello) (42 ,, \"hello\")" >>> (
-//        Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm),
-//        Type.Intersection(IntType.toType, BoolType.toType)
-//      )
-//    }
-//  }
-//
-//  test("synth coercion") {
-//    module("""
-//      f (x: Int) = false ,, x;
-//    """) { implicit env =>
-//      "(f : Bool & Int -> Bool & Int) (true ,, 42)" >>> (
-//        Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))),
-//        Type.Intersection(BoolType.toType, IntType.toType)
-//      )
-//    }
-//  }
+  test("synth merge") {
+    module("""
+      def double(value: Int) = value * 2;
+      def isHello(str: String) = if str == "hello" then true else false;
+    """) { implicit env =>
+      "(double ,, isHello) 42" >>> (IntValue(84).toTerm, IntType.toType)
+      "(double ,, isHello) \"hello\"" >>> (BoolValue(true).toTerm, BoolType.toType)
+      "(double ,, isHello) \"world\"" >>> (BoolValue(false).toTerm, BoolType.toType)
+      "(double ,, isHello) (42 ,, \"hello\")" >>> (
+        Term.Merge(IntValue(84).toTerm, BoolValue(true).toTerm),
+        Type.Intersection(IntType.toType, BoolType.toType)
+      )
+    }
+  }
+
+  test("synth coercion") {
+    module("""
+      f (x: Int) = true ,, x;
+    """) { implicit env =>
+      "(f : Bool & Int -> Bool & Int) (false ,, 42)" >>> (
+        Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))),
+        Type.Intersection(BoolType.toType, IntType.toType)
+      )
+    }
+  }
   
   test("synth trait") {
     module("""
@@ -166,17 +166,17 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       )
     }
   }
-  
+
   test("synth trait mutual recursion") {
     module("""
       type Even = { isEven : Int -> Bool };
       type Odd = { isOdd : Int -> Bool };
       
-      def even = trait [self: Odd] => {
+      def even = trait [self: Odd] implements Even => {
         isEven (n : Int) = if n == 0 then true else self.isOdd(n - 1)
       };
       
-      def odd = trait [self: Even] => {
+      def odd = trait [self: Even] implements Odd => {
         isOdd (n : Int) = if n == 0 then false else self.isEven(n - 1)
       };
     """) { implicit env =>

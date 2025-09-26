@@ -78,7 +78,7 @@ java --version  # Should show GraalVM
 native-image --version
 ```
 
-### Building CP Toolchain
+### Building CP Toolchain 
 
 Compile the complete CP toolchain to a native binary:
 
@@ -206,6 +206,22 @@ mixin (T * { amazing: Bool }) (base: Trait<T>) =
 ```
 
 The concise form `(T * Constraint)` is semantically equivalent to the complete form `T where T * Constraint` - both specify that type `T` must be disjoint from the given constraint. 
+
+#### Impl-From Syntax
+
+```scala
+impl Bar from Foo = { ... }
+```
+
+```scala
+impl expMul[Exp] from MulSig<Exp> inherits expAdd[Exp] = {
+  override test = new Mul(super.test, new Lit 4);
+};
+
+def expMul[Exp] = trait [self : MulSig<Exp>] inherits expAdd[Exp] => {
+  override test = new Mul(super.test, new Lit 4);
+};
+```
 
 ### New Features
 

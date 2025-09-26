@@ -682,6 +682,8 @@ class Visitor extends CpParserBaseVisitor[
     val baseType = ctx.typeLiteral.visit
     val sorts = Option(ctx.sort).map(_.asScala.map(_.visit).toList).getOrElse(Nil)
     // TODO: Apply sorts to baseType
+    // See <https://i.cs.hku.hk/~bruno/papers/toplas2021.pdf>
+    //  page 24. An Informal Introduction to the Elaboration
     baseType
   }
 

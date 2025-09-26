@@ -249,7 +249,7 @@ enum Type {
         }
       }
       
-      case (Intersection(l1, r1), _) => l1 <:< normThat && r1 <:< normThat
+      case (Intersection(l1, r1), _) => l1 <:< normThat || r1 <:< normThat
       
       case (_, Union(l2, r2)) => normThis <:< l2 || normThis <:< r2
       
@@ -640,9 +640,7 @@ enum Type {
       val lhsResult = lhs.testApplicationReturn(argType)
       val rhsResult = rhs.testApplicationReturn(argType)
       (lhsResult, rhsResult) match {
-        case (Some(l), Some(r)) => OverloadingAmbiguous.raise {
-          s"Ambiguous application: both ${lhs} and ${rhs} can be applied to argument of type ${argType}"
-        }
+        case (Some(l), Some(r)) => Some(Intersection(l, r).normalize)
         case (Some(l), None) => Some(l)
         case (None, Some(r)) => Some(r)
         case (None, None) => None

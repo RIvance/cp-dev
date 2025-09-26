@@ -27,14 +27,14 @@ private sealed abstract class NativeCallableBase (
     if args.length != paramTypes.length then {
       throw new IllegalArgumentException(s"Expected ${paramTypes.length} arguments, got ${args.length}")
     }
-    // Verify argument types
-    args.zip(paramTypes).foreach { case (arg, ty) =>
+    // Verify and filter arguments
+    val filteredArgs = args.zip(paramTypes).map { case (arg, ty) =>
       val inferredType = arg.infer
       if !(inferredType <:< ty) then TypeNotMatch.raise {
         s"Expected argument of type $ty, got $inferredType"
-      }
+      } else arg.filter(ty)
     }
-    implementation(args)
+    implementation(filteredArgs)
   }
 }
 

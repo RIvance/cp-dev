@@ -1,8 +1,9 @@
 package cp.core
 
-import scala.util.{Failure, Success, Try}
 import cp.error.CoreErrorKind.*
 import cp.util.{Graph, Recoverable}
+
+import scala.util.{Failure, Success}
 
 enum Term {
   
@@ -84,7 +85,7 @@ enum Term {
 
       case Apply(func, arg) => func.infer match {
         case Type.Arrow(paramType, returnType) =>
-          val argType = arg.infer
+          val argType: Type = arg.infer
           if !(argType <:< paramType) then TypeNotMatch.raise {
             s"Expected argument type: ${paramType}, but got: ${argType}"
           } else returnType
@@ -434,10 +435,10 @@ enum Term {
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
     
-    case Typed(term, ty) => {
-      if !term.check(ty) then TypeNotMatch.raise {
-        s"Annotated type ${ty} does not match inferred type ${term.infer}"
-      } else term.eval // TODO: do we need to keep the type annotation after evaluation?
+    case Typed(term, expectedType) => {
+      if !term.check(expectedType) then TypeNotMatch.raise {
+        s"Annotated type ${expectedType} does not match inferred type ${term.infer}"
+      } else term.eval.filter(expectedType) // TODO: do we need to keep the type annotation after evaluation?
     }
     
     case Primitive(_) => this
@@ -496,12 +497,12 @@ enum Term {
           }
         }
           
-        case (Lambda(param, _, body), argValue, _) if argValue.isValue => {
-          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
+        case (Lambda(param, paramType, body), argValue, _) if argValue.isValue => {
+          env.withTermVar(param, argValue.filter(paramType)) { implicit newEnv => body.eval(using newEnv) }
         }
         
-        case (Lambda(param, _, body), argValue, EvalMode.Full) => {
-          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
+        case (Lambda(param, paramType, body), argValue, EvalMode.Full) => {
+          env.withTermVar(param, argValue.filter(paramType)) { implicit newEnv => body.eval(using newEnv) }
         }
         
         case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity => {
@@ -778,6 +779,31 @@ enum Term {
   }
   
   def isValue: Boolean = this.isValue(Set.empty)
+
+  /**
+   * For merged terms, filter out the branches that do not conform to the expected type.
+   */
+  def filter(expectedType: Type)(using env: Environment): Term = this match {
+    case Merge(left, right, MergeBias.Neutral) => {
+      val leftType = left.infer
+      val rightType = right.infer
+      (leftType <:< expectedType, rightType <:< expectedType) match {
+        case (true, true) => Term.Merge(left.filter(expectedType), right.filter(expectedType), MergeBias.Neutral)
+        case (true, false) => left.filter(expectedType)
+        case (false, true) => right.filter(expectedType)
+        case (false, false) => TypeNotMatch.raise {
+          s"Neither branch of merge conforms to expected type: ${expectedType}"
+        }
+      }
+    }
+    case Merge(left, right, MergeBias.Left) => {
+      Term.Merge(left.filter(expectedType), Term.Diff(right, left).filter(expectedType), MergeBias.Neutral)
+    }
+    case Merge(left, right, MergeBias.Right) => {
+      Term.Merge(Term.Diff(left, right).filter(expectedType), right.filter(expectedType), MergeBias.Neutral)
+    }
+    case _ => this
+  }
   
   def contains(name: String): Boolean = this match {
     case Var(n) => n == name
