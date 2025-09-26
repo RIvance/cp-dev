@@ -86,7 +86,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     using constraints: Set[Constraint[ExprType]] = Set.empty
   ): (Term, Type) = synthesize(using None)(using env)
 
-  def synthesize(using expectedType: Option[Type])(using env: Environment)(
+  private def synthesize(using expectedType: Option[Type])(using env: Environment)(
     using constraints: Set[Constraint[ExprType]]
   ): (Term, Type) = this match {
     case ExprTerm.Primitive(value) => {
