@@ -45,6 +45,9 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
     "(fun (f: Int -> Int) -> f(41)) (fun (x: Int) -> x + 1)" >>> (
       IntValue(42).toTerm, IntType.toType
     )
+    "(fun (f: Int -> Int) -> f(41)) (fun x -> x + 1)" >>> (
+      IntValue(42).toTerm, IntType.toType
+    )
   }
   
   test("synth method style function call") {

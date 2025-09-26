@@ -33,9 +33,9 @@ enum Term {
   case Record(fields: Map[String, Term])
   
   case Tuple(elements: List[Term])
-  
+
   case Merge(left: Term, right: Term, bias: MergeBias = MergeBias.Neutral)
-  
+
   case Diff(left: Term, right: Term)
   
   case IfThenElse(condition: Term, thenBranch: Term, elseBranch: Term)
@@ -392,6 +392,12 @@ enum Term {
       val rightType = right.infer
       leftType.merge(rightType) <:< expectedType
     }
+
+    case Diff(left, right) => {
+      val leftType = left.infer
+      val rightType = right.infer
+      (leftType diff rightType) <:< expectedType
+    }
     
     case IfThenElse(_, thenBranch, elseBranch) => {
       thenBranch.check(expectedType) && elseBranch.check(expectedType)
@@ -498,11 +504,15 @@ enum Term {
         }
           
         case (Lambda(param, paramType, body), argValue, _) if argValue.isValue => {
-          env.withTermVar(param, argValue.filter(paramType)) { implicit newEnv => body.eval(using newEnv) }
+          env.withTermVar(param, Typed(argValue.filter(paramType), paramType)) { 
+            implicit newEnv => body.eval(using newEnv) 
+          }
         }
         
         case (Lambda(param, paramType, body), argValue, EvalMode.Full) => {
-          env.withTermVar(param, argValue.filter(paramType)) { implicit newEnv => body.eval(using newEnv) }
+          env.withTermVar(param,  Typed(argValue.filter(paramType), paramType)) { 
+            implicit newEnv => body.eval(using newEnv) 
+          }
         }
         
         case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity => {

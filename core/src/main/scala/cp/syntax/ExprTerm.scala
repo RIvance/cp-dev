@@ -84,9 +84,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   def synthesize(using env: Environment)(
     using constraints: Set[Constraint[ExprType]] = Set.empty
-  ): (Term, Type) = synthesize(None)(using env)
+  ): (Term, Type) = synthesize(using None)(using env)
 
-  def synthesize(expectedType: Option[Type])(using env: Environment)(
+  def synthesize(using expectedType: Option[Type])(using env: Environment)(
     using constraints: Set[Constraint[ExprType]]
   ): (Term, Type) = this match {
     case ExprTerm.Primitive(value) => {
@@ -124,7 +124,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             case Type.Arrow(domain, codomain) => {
               // When arg is a lambda without annotation, 
               //  we need to infer its type from accFnType
-              val (argTerm: Term, argType: Type) = arg.synthesize(Some(domain))
+              val (argTerm: Term, argType: Type) = arg.synthesize(using Some(domain))
               if !argTerm.check(domain) then TypeNotMatch.raise {
                 s"Expected argument type: $domain, found: $argType"
               }
