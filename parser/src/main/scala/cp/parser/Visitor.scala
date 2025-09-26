@@ -177,7 +177,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitExpressionRefAssign(ctx: ExpressionRefAssignContext): ExprTerm = {
-    ExprTerm.Apply(ExprTerm.Var("#refAssign"), List(ctx.ref.visit, ctx.value.visit)).withSpan(ctx)
+    ExprTerm.Apply(ExprTerm.Var("$refAssign"), List(ctx.ref.visit, ctx.value.visit)).withSpan(ctx)
   }
 
   override def visitExpressionSeq(ctx: ExpressionSeqContext): ExprTerm = {
@@ -391,7 +391,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitCompExprRef(ctx: CompExprRefContext): ExprTerm = {
-    ExprTerm.Apply(ExprTerm.Var("#refInit"), List(ctx.dotExpr.visit))
+    ExprTerm.Apply(ExprTerm.Var("$refInit"), List(ctx.dotExpr.visit))
   }
 
   extension (ctx: ExcludeExprContext) def visit: ExprTerm = {
@@ -553,15 +553,16 @@ class Visitor extends CpParserBaseVisitor[
         parenCtx.typedExpr.visit
         
       case blockCtx: AtomicExprBlockContext => {
+        val params: List[(String, Option[ExprType])] = blockCtx.params.asScala.flatMap(_.visit).toList
         val stmts = blockCtx.stmt.asScala.map(_.visit).toList
         val lastExpr = Option(blockCtx.typedExpr).map(_.visit)
         // Convert statements to nested lets
-        stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { 
+        val body = stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { 
           (stmt, acc) => stmt match {
             case Statement.RefAssign(reference, value) =>
               ExprTerm.Do(
                 ExprTerm.Apply(
-                  ExprTerm.Var("#refAssign"), List(reference, value)
+                  ExprTerm.Var("$refAssign"), List(reference, value)
                 ).withSpan(stmt.span),
                 body = acc
               )
@@ -573,6 +574,7 @@ class Visitor extends CpParserBaseVisitor[
               ExprTerm.Do(expr.withSpan(stmt.span), acc)
           }
         }
+        if params.isEmpty then body else body.foldLambda(params)
       }
       
       case appCtx: AtomicExprAppContext => {

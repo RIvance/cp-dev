@@ -235,9 +235,9 @@ atomicExpr
     |   recordUpdate                    # atomicExprRecordUpdate
     |   Dollar ctorName                 # atomicExprCtor
     |   ParenOpen typedExpr ParenClose  # atomicExprParen
-    |   BraceOpen (stmt Semicolon)* typedExpr? BraceClose                   # atomicExprBlock
-    |   expr=atomicExpr ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose     # atomicExprApp
-    |   expr=atomicExpr BracketOpen args+=type (Comma args+=type)* BracketClose      # atomicExprTypeApp
+    |   BraceOpen (params+=termParamGroup+ Arrow)? (stmt Semicolon)* typedExpr? BraceClose  # atomicExprBlock
+    |   expr=atomicExpr ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose    # atomicExprApp
+    |   expr=atomicExpr BracketOpen args+=type (Comma args+=type)* BracketClose             # atomicExprTypeApp
     ;
 
 tuple
