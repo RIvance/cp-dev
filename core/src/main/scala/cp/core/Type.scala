@@ -650,6 +650,19 @@ enum Type {
     case Diff(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
   }
   
+  def getParamAndReturnTypes: (List[Type], Type) = this match {
+    case Arrow(domain, codomain) => {
+      val (params, ret) = codomain.getParamAndReturnTypes
+      (domain :: params, ret)
+    }
+    case Trait(domain, codomain) => {
+      val (params, ret) = codomain.getParamAndReturnTypes
+      (domain :: params, ret)
+    }
+    // TODO: Handle intersection of function-like types
+    case _ => (Nil, this)
+  }
+  
   def testApplicationReturn(argType: Type)(using env: Environment): Option[Type] = this match {
     
     case Arrow(domain, codomain) => {

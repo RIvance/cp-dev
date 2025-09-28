@@ -89,7 +89,10 @@ enum Term {
           if !(argType <:< paramType) then TypeNotMatch.raise {
             s"Expected argument type: ${paramType}, but got: ${argType}"
           } else returnType
-        case fnType@Type.Intersection(_, _) => {
+        case Type.Trait(_, _) => 
+          // convert to a coercion application
+          Term.CoeApply(func, arg).infer
+        case fnType@Type.Intersection(_, _) => 
           val argType = arg.infer
           fnType.testApplicationReturn(argType) match {
             case Some(returnType) => returnType
@@ -97,8 +100,6 @@ enum Term {
               s"Function type ${fnType} cannot be applied to argument type ${argType}"
             }
           }
-        }
-        // TODO: Figure out whether we also need to handle trait (coercive) application here.
         case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
       }
 
@@ -108,7 +109,7 @@ enum Term {
           if !(argType <:< paramType) then TypeNotMatch.raise {
             s"Expected argument type: ${paramType}, but got: ${argType}"
           } else returnType
-        case fnType@Type.Intersection(_, _) => {
+        case fnType@Type.Intersection(_, _) => 
           val argType = arg.infer
           fnType.testApplicationReturn(argType) match {
             case Some(returnType) => returnType
@@ -116,7 +117,6 @@ enum Term {
               s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
             }
           }
-        }
         case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
       }
 
@@ -245,6 +245,9 @@ enum Term {
         if !(returnType <:< expectedType) then TypeNotMatch.raise {
           s"Function return type ${returnType} does not match expected type ${expectedType}"
         } else arg.check(paramType)
+      case Type.Trait(_, _) => 
+        // convert to a coercion application
+        Term.CoeApply(func, arg).check(expectedType)
       case fnType@Type.Intersection(_, _) => {
         val argType: Type = arg.infer
         // Try to find a function type in the intersection that can produce expectedType
@@ -772,6 +775,25 @@ enum Term {
         Term.NativeProcedureCall(procedure, evaluatedArgs)
       }
     }
+  }
+  
+  def new_(env: Environment, traitType: Type): (Term, Type) = {
+    given Environment = env
+    traitType.normalize match {
+      case Type.Trait(domain, codomain) => {
+        if codomain <:< domain then {
+          Term.Fixpoint("$self", domain, Term.Apply(this, Term.Var("$self"))) -> codomain
+        } else TypeNotMatch.raise {
+          s"Trait codomain $codomain is not a subtype of its domain $domain"
+        }
+      }
+      case _ => TypeNotMatch.raise(s"`new` expression must be of a trait type, but got: $traitType")
+    }
+  }
+  
+  def new_(using env: Environment): Term = {
+    val traitType = this.infer
+    this.new_(env, traitType)._1
   }
   
   private def isValue(allowedParams: Set[String] = Set.empty): Boolean = this match {

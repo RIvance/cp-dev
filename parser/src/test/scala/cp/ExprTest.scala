@@ -12,7 +12,7 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
   given Environment = Prelude.environment
   
-  test("synth primitive type Int") {
+  test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)
   }
   
@@ -32,12 +32,12 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
     )
   }
   
-  test("synth lambda") {
+  test("simple lambda") {
     "fun (x: Int) -> x + 1" >>: Type.Arrow(IntType.toType, IntType.toType)
     "(fun (x: Int) -> x + 1) 41" >>> (IntValue(42).toTerm, IntType.toType)
   }
   
-  test("synth high-order lambda") {
+  test("high-order lambda") {
     "fun (f: Int -> Int) -> f(41)" >>: Type.Arrow(
       Type.Arrow(IntType.toType, IntType.toType),
       IntType.toType
@@ -45,12 +45,12 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
     "(fun (f: Int -> Int) -> f(41)) (fun (x: Int) -> x + 1)" >>> (
       IntValue(42).toTerm, IntType.toType
     )
-    "(fun (f: Int -> Int) -> f(41)) (fun x -> x + 1)" >>> (
+    "(fun (f: Int -> Int) -> f(41)) (x -> x + 1)" >>> (
       IntValue(42).toTerm, IntType.toType
     )
   }
   
-  test("synth method style function call") {
+  test("method style function call") {
     "114514.toString" >>> (
       Literal.StringValue("114514").toTerm, 
       LiteralType.StringType.toType

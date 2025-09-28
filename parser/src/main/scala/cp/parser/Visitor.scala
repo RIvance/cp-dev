@@ -600,11 +600,23 @@ class Visitor extends CpParserBaseVisitor[
         val params = field.params.asScala.flatMap(_.visit).toSeq
         val value = field.value.visit
         val fieldTerm = if params.isEmpty then value else value.foldLambda(params)
-        field.name.getText -> RecordField(fieldTerm, Option(field.Override).isDefined)
+        field.name.getText -> RecordFieldValue(fieldTerm, Option(field.Override).isDefined)
       }
-      // TODO: Handle other record entity types as needed
-      case _ => ("unknown", RecordField(ExprTerm.unit))
-    }.toMap
+      case field: RecordMethodPatternContext => {
+        val isOverride = Option(field.Override).isDefined
+        val consName = field.fieldPattern.name.getText
+        val consParams = {
+          field.fieldPattern.paramGroups.asScala.flatMap(_.visit).toSeq
+          ++ field.fieldPattern.atomGroups.asScala.flatMap(_.visit).toSeq
+        }
+        val methodName = field.method.getText
+        val methodParams = field.methodParams.asScala.flatMap(_.visit).toSeq
+        val methodBody = field.value.visit.foldLambda(methodParams)
+        consName -> RecordFieldMethod(consParams, methodName, methodBody, isOverride)
+      }
+      // TODO: implement default (wildcard) pattern
+      case field: RecordDefaultPatternContext => ???
+    }.toList
     ExprTerm.Record(fields)
   }
 

@@ -202,13 +202,13 @@ caseClause
 
 pattern
     :   Underscore                          # patternWildcard
-    |   variable=Identifier               # patternVar
+    |   variable=Identifier                 # patternVar
     |   IntLit                              # patternInt
     |   FloatLit                            # patternFloat
     |   StringLit                           # patternString
     |   BoolLit                             # patternBool
     |   Unit                                # patternUnit
-    |   Dollar Identifier params+=termParamGroup*                         # patternCtor
+    |   Dollar Identifier params+=termParamGroup*                           # patternCtor
     |   ParenOpen patterns+=pattern Comma patterns+=pattern+ ParenClose     # patternTuple
     |   BraceOpen fieldPatterns+=recordPatternField (Semicolon fieldPatterns+=recordPatternField)* BraceClose   # patternRecord
     ;
@@ -251,8 +251,15 @@ record
 
 recordEntity
     :   (Impl | Override)? selfAnno? name=Identifier params+=termParamGroup* Assign value=typedExpr  # recordField
-    |   Override? (selfAnno At)? ParenOpen name=Identifier objectParams+=termParamGroup* ParenClose Dot method=Identifier methodParams+=termParamGroup* Assign value=typedExpr # recordMethod
+    |   Override? (selfAnno At)? fieldPattern=recordEntityPattern
+          Dot method=Identifier methodParams+=termParamGroup* Assign value=typedExpr # recordMethodPattern
+    // Wildcard pattern e.g. `trait implements ExpSig<Eval> => { _.eval = 0 };`
     |   (Underscore | selfAnno) Dot name=Identifier params+=termParamGroup* Assign value=typedExpr # recordDefaultPattern
+    ;
+
+recordEntityPattern
+    :   ParenOpen name=Identifier paramGroups+=termParamGroup* ParenClose
+    |   name=Identifier ParenOpen (atomGroups+=termParamAtomGroup (Comma atomGroups+=termParamAtomGroup)*) ParenClose
     ;
 
 recordUpdate
@@ -278,10 +285,10 @@ boundedTypeParam
     ;
 
 termParamGroup
-    :   name=Identifier           # termParamSingleIdent
+    :   name=Identifier             # termParamSingleIdent
     |   Underscore                  # termParamSingleWildcard
     |   ParenOpen (groups+=termParamAtomGroup (Comma groups+=termParamAtomGroup)*) ParenClose # termParamMultiple
-    |   wildcardRecord        # termParamRecordWildcard
+    |   wildcardRecord              # termParamRecordWildcard
     ;
 
 termParamAtomGroup

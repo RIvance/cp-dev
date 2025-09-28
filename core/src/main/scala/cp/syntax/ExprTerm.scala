@@ -28,7 +28,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case LetIn(name: String, value: ExprTerm, ty: Option[ExprType], body: ExprTerm)
 
-  case Record(fields: Map[String, RecordField])
+  case Record(fields: List[(String, RecordField)])
 
   case Tuple(elements: List[ExprTerm])
 
@@ -241,12 +241,204 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
     
     case ExprTerm.Record(fields) => {
-      val synthesizedFields: Map[String, (Term, Type)] = fields.map {
-        case (fieldName, fieldExpr) => {
-          val (fieldTerm, fieldType) = fieldExpr.value.synthesize
-          (fieldName, (fieldTerm, fieldType))
+
+      // Group fields by name to merge method patterns
+      val fieldGroup: Map[String, List[RecordField]] = fields.groupMap(_._1)(_._2)
+      val (
+        valueFields: Map[String, (RecordFieldValue, Option[Type])],
+        consFields: Map[String, (List[RecordFieldMethod], Option[Type])],
+      ) = {
+        fieldGroup.foldLeft((
+          Map.empty[String, (RecordFieldValue, Option[Type])],
+          Map.empty[String, (List[RecordFieldMethod], Option[Type])],
+        )) {
+          case ((values, cons), (fieldName, fieldList)) => {
+            val (valueList, consList) = fieldList.partition(_.isInstanceOf[RecordFieldValue])
+
+            // Error if multiple value fields for same name
+            if (valueList.size > 1) {
+              throw new RuntimeException(s"Multiple value bindings for field '$fieldName'")
+            }
+
+            // Error if both value and constructor fields for same name
+            if (valueList.nonEmpty && consList.nonEmpty) {
+              throw new RuntimeException(s"Field '$fieldName' has both value and constructor bindings")
+            }
+
+            val expectedFieldType = expectedType match {
+              case Some(Type.Record(fieldTypes)) => fieldTypes.get(fieldName)
+              case _ => None
+            }
+
+            // For value field, take the single value
+            val updatedValues = valueList.headOption.map(v =>
+              values + (fieldName -> (v.asInstanceOf[RecordFieldValue], expectedFieldType))
+            ).getOrElse(values)
+
+            // For constructor fields, merge into a list
+            val updatedCons = if (consList.nonEmpty) {
+              cons + (fieldName -> (consList.map(_.asInstanceOf[RecordFieldMethod]), expectedFieldType))
+            } else cons
+
+            (updatedValues, updatedCons)
+          }
         }
       }
+
+      val synthesizedValueFields: Map[String, (Term, Type)] = valueFields.map {
+        case (fieldName, (RecordFieldValue(fieldExpr, _), expectedTypeOpt)) => {
+          val (fieldTerm: Term, fieldType: Type) = fieldExpr.synthesize
+          expectedTypeOpt match {
+            case Some(expectedType) =>
+              if !fieldTerm.check(expectedType) then TypeNotMatch.raise {
+                s"Field '$fieldName' type does not match expected type: $fieldType vs $expectedType"
+              } else (fieldName, (fieldTerm, expectedType))
+            case None => (fieldName, (fieldTerm, fieldType))
+          }
+        }
+      }
+
+      // Merge method patterns into single function per field; e.g.,
+      //  ```
+      //  trait implements NegSig<Eval & Print> => {
+      //    (Neg e).eval = -e.eval;
+      //    (Neg e).print = "-(" ++ e.print ++ ")";
+      //  };
+      //  ```
+      // becomes
+      //  ```
+      //  trait implements NegSig<Eval & Print> => {
+      //    Neg = fun e -> new trait => {
+      //      eval = -e.eval;
+      //      print = "-(" ++ e.print ++ ")";
+      //    };
+      //  };
+      val synthesizedConsFields: Map[String, (Term, Type)] = consFields.iterator.map {
+        case (consName, (methodPatterns: List[RecordFieldMethod], expectedTypeOpt: Option[Type])) => {
+          // e.g., For type `{ Neg: Eval&Print -> out Eval&Print };`,
+          //  `Eval&Print -> out Eval&Print` is the expected method type
+          val expectedConsTypeOpt = expectedTypeOpt match {
+            case Some(Type.Record(expectedFieldTypes)) => expectedFieldTypes.get(consName)
+            case _ => None
+          }
+
+          // We need to extract the expected parameter types and return type
+          val expectedConsTypeListOpt: Option[(List[Type], Type)] = expectedTypeOpt.map(_.getParamAndReturnTypes)
+
+          // e.g., For `{ Neg: Eval&Print -> out Eval&Print }`
+          //  where `out Eval&Print = { eval: Int; print: String }`,
+          //  `eval: Int` and `print: String` are the expected method parameter types
+          val expectedMethodTypes: Map[String, Type] = expectedConsTypeListOpt.map {
+            case (_, Type.Record(fieldTypes)) => fieldTypes
+            case _ => Map.empty[String, Type]
+          }.getOrElse(Map.empty[String, Type])
+
+          // Now synthesize the constructor parameters
+          //  the parameters are store in each method pattern
+          //  for each method pattern, the parameters are expected to be the same
+          //  so we can just take the first one
+          // e.g., For `(Neg e).eval = -e.eval;` and `(Neg e).print = "-(" ++ e.print ++ ")";`
+          //  the constructor parameter is always a single `e` with type `Eval&Print`
+          //  (maybe with different names)
+          // So we need to ensure that all method patterns have the same constructor parameters
+          //  (with same types and maybe different names)
+          // We firstly check whether the types are provided by the expected type passed in
+          //  if so, we use those types
+          //  otherwise, we expect the types to be provided in the method patterns
+          // If we have to use the types from method patterns,
+          //  we need to ensure that all method patterns have the same types
+          val expectedConstructorParamTypes: List[Type] = expectedConsTypeListOpt match {
+            case Some((paramTypes, _)) => paramTypes
+            case None => {
+
+              // Helper function to get parameter types from method parameters
+              extension (params: Seq[(String, Option[ExprType])]) def getParamTypes: List[Type] = params.map {
+                case (paramName, paramTypeOpt) => paramTypeOpt match {
+                  case Some(tyExpr) => tyExpr.synthesize
+                  case None => MissingTypeAnnotation.raise {
+                    s"Cannot infer constructor parameter type for method pattern without annotation: $paramName in $this"
+                  }
+                }
+              }.toList
+
+              // We take the types from the first method pattern and check others against it
+              // If the first method pattern has no type annotation, we cannot infer the types
+              //  therefore raise an error
+              // We can ensure that there is at least one method pattern
+              val firstPatternParamTypes: List[Type] = methodPatterns.head.fieldParams.getParamTypes
+              
+              // Now check other method patterns against the first one
+              methodPatterns.tail.foreach { pattern =>
+                val patternParamTypes: List[Type] = pattern.fieldParams.getParamTypes
+                if patternParamTypes.length != firstPatternParamTypes.length then TypeNotMatch.raise {
+                  s"Constructor parameter count mismatch in method patterns for '$consName'"
+                }
+                patternParamTypes.zip(firstPatternParamTypes).foreach { (t1, t2) =>
+                  if !(t1 unify t2) then TypeNotMatch.raise {
+                    s"Constructor parameter type mismatch in method patterns for '$consName': $t1 vs $t2"
+                  }
+                }
+              }
+              // If all checks pass, we can use the first pattern's parameter types
+              firstPatternParamTypes
+            }
+          }
+
+          // In this step, we need to check whether the param names are the same
+          //  if they are the same, we can use that name
+          //  otherwise, we need to generate a fresh name and substitute it in the method bodies
+          val allConstructorParamNames: List[String] = {
+            val firstPatternParamNames: List[String] = methodPatterns.head.fieldParams.map(_._1).toList
+            val allSame = methodPatterns.forall { pattern =>
+              val paramNames: List[String] = pattern.fieldParams.map(_._1).toList
+              paramNames == firstPatternParamNames
+            }
+            // For now, we require all param names to be the same
+            //  as we do not have a good way to generate a set of fresh names without clashing
+            if allSame then firstPatternParamNames else UnsupportedFeature.raise {
+              s"Constructor parameter names must be the same across all method patterns for '$consName'"
+            }
+          }
+          
+          assert(allConstructorParamNames.length == expectedConstructorParamTypes.length)
+          val constructorParams: List[(String, Type)] = allConstructorParamNames.zip(expectedConstructorParamTypes)
+          val constructorParamVars = constructorParams.map {
+            (paramName, paramType) => paramName -> Term.Typed(Term.Var(paramName), paramType)
+          }.toMap
+          
+          // Now we can synthesize the constructor body
+          val consBody = env.withTermVars(constructorParamVars) { implicit newEnv =>
+            val methods = methodPatterns.map { case RecordFieldMethod(_, methodName, body, _) =>
+              // Synthesize each method pattern
+              //  e.g., `eval = -e.eval;`
+              methodName -> body.synthesize(using expectedMethodTypes.get(methodName))(using newEnv)(using constraints)
+            }.toMap
+            // The constructor body is `new trait => { methods... }`
+            Term.Coercion(
+              param = "self",
+              paramType = Type.Primitive(LiteralType.TopType),
+              body = Term.Record(methods.map {
+                case (methodName, (methodTerm, methodType)) => methodName -> methodTerm
+              })
+            ).new_
+          }
+
+          // Fold the constructor parameters into a lambda
+          val constructorBody = constructorParams.foldRight(consBody) {
+            case ((paramName, paramType), accBody: Term) => {
+              Term.Lambda(paramName, paramType, accBody)
+            }
+          }
+          
+          // TODO: The constructor type
+          val constructorType: Type = ???
+
+          consName -> (constructorBody, constructorType)
+        }
+      }.toMap
+
+      val synthesizedFields: Map[String, (Term, Type)] = synthesizedValueFields ++ synthesizedConsFields
+
       val recordTerm = Term.Record(synthesizedFields.map {
         case (fieldName, (fieldTerm, _)) => (fieldName, fieldTerm)
       })
@@ -539,16 +731,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     
     case ExprTerm.New(traitTermExpr) => {
       val (traitTerm: Term, traitType: Type) = traitTermExpr.synthesize
-      traitType.normalize match {
-        case Type.Trait(domain, codomain) => {
-          if codomain <:< domain then {
-            Term.Fixpoint("$self", domain, Term.Apply(traitTerm, Term.Var("$self"))) -> codomain
-          } else TypeNotMatch.raise {
-            s"Trait codomain $codomain is not a subtype of its domain $domain"
-          }
-        }
-        case _ => TypeNotMatch.raise(s"`new` expression must be of a trait type, but got: $traitType")
-      }
+      traitTerm.new_(env, traitType)
     }
     
     case ExprTerm.Forward(_, _) => ???
@@ -606,7 +789,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case Fixpoint(fixName, _, recursiveBody) => fixName != name && recursiveBody.contains(name)
     case IfThenElse(cond, thenBr, elseBr) => cond.contains(name) || thenBr.contains(name) || elseBr.contains(name)
     case LetIn(letName, value, _, body) => value.contains(name) || (letName != name && body.contains(name))
-    case Record(fields) => fields.values.exists(_.contains(name))
+    case Record(fields) => fields.exists { case (_, field) => field.contains(name) }
     case Tuple(elements) => elements.exists(_.contains(name))
     case Merge(left, right, _) => left.contains(name) || right.contains(name)
     case Projection(record, _) => record.contains(name)
@@ -667,7 +850,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
     
     case ExprTerm.Record(fields) => {
-      ExprTerm.Record(fields.view.mapValues(_.subst(name, replacement)).toMap)
+      ExprTerm.Record(fields.map {
+        case (fieldName, field) => (fieldName, field.subst(name, replacement))
+      })
     }
     
     case ExprTerm.Tuple(elements) => {
@@ -752,7 +937,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     // Fields marked as overriding with 'true' flag
     // TODO: only override the inner field if it's a method pattern
     case ExprTerm.Record(fields) => fields.collect {
-      case (fieldName, RecordField(_, true)) => fieldName
+      case (fieldName, field) if field.isOverride => fieldName
     }.toSet
     case _ => Set.empty
   }
@@ -861,15 +1046,3 @@ object ExprTerm {
   def unit: ExprTerm = ExprTerm.Primitive(Literal.UnitValue)
 }
 
-case class RecordField(value: ExprTerm, isOverride: Boolean = false) {
-
-  def contains(name: String): Boolean = value.contains(name)
-
-  def subst(name: String, replacement: ExprTerm): RecordField = {
-    RecordField(value.subst(name, replacement), isOverride)
-  }
-
-  override def toString: String = {
-    if isOverride then s"override ${value.toString}" else value.toString
-  }
-}
