@@ -20,6 +20,11 @@ enum Type {
     constraints: Set[Constraint[Type]] = Set.empty,
   )
   
+  // Signature is a special form of forall type for accepting sorts.
+  // It should only exist in type synthesis phase.
+  // After that, it should be treated as a normal forall type.
+  case Signature(sortInName: String, sortOutName: String, body: Type)
+  
   case Intersection(lhs: Type, rhs: Type)
   
   case Union(lhs: Type, rhs: Type)
@@ -63,6 +68,12 @@ enum Type {
         }
         Forall(param, codomain.subst(from, replacement), newConstraints)
       }
+    }
+
+    case Signature(sortInName, sortOutName, body) => {
+      val bodySubst = if sortInName == from || sortOutName == from then body
+      else body.subst(from, replacement)
+      Signature(sortInName, sortOutName, bodySubst)
     }
     
     case Intersection(lhs, rhs) => {
@@ -303,6 +314,16 @@ enum Type {
           codomain.normalize,
           constraints.compact.map(_.rename(param))
         )
+      }
+    }
+
+    case Signature(sortInName, sortOutName, body) => {
+      env.withTypeVars(
+        sortInName -> Type.Var(sortInName),
+        sortOutName -> Type.Var(sortOutName),
+      ) { implicit newEnv =>
+        given Environment = newEnv
+        Signature(sortInName, sortOutName, body.normalize)
       }
     }
 
@@ -616,6 +637,9 @@ enum Type {
     case Forall(param, codomain, constraints) => param != name && {
       codomain.contains(name) || constraints.exists(_.subject.contains(name))
     }
+    case Signature(sortInName, sortOutName, body) => {
+      sortInName != name && sortOutName != name && body.contains(name)
+    }
     case Intersection(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
     case Union(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
     case Record(fields) => fields.values.exists(_.contains(name))
@@ -653,6 +677,7 @@ enum Type {
   // Add parentheses where necessary to ensure correct parsing.
   def toAtomString: String = this match {
     case Forall(_, _, _) => s"(${toString})"
+    case Signature(_, _, _) => s"(${toString})"
     case Arrow(_, _) => s"(${toString})"
     case Trait(_, _) => s"(${toString})"
     case Apply(_, _) => s"(${toString})"
@@ -678,19 +703,21 @@ enum Type {
       else constraints.map(_.toString).mkString(" | ") + " "
       s"∀$param $constraintsStr. ${codomain.toString}"
     }
+
+    case Signature(sortInName, sortOutName, body) => {
+      s"∀<$sortInName => $sortOutName> . ${body.toString}"
+    }
     
     case Intersection(lhs, rhs) => s"${lhs.toAtomString} & ${rhs.toAtomString}"
     
     case Union(lhs, rhs) => s"${lhs.toAtomString} | ${rhs.toAtomString}"
     
     case Record(fields) => {
-      val fieldsStr = fields.map { case (label, ty) => s"$label: $ty" }.mkString("; ")
-      s"{ $fieldsStr }"
+      s"{ ${fields.map { case (label, ty) => s"$label: $ty" }.mkString("; ")} }"
     }
     
     case Tuple(elements) => {
-      val elementsStr = elements.map(_.toString).mkString(", ")
-      s"($elementsStr)"
+      s"(${elements.map(_.toString).mkString(", ")})"
     }
     
     case Fixpoint(name, body) => s"μ $name . ${body.toAtomString}"

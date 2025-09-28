@@ -158,6 +158,11 @@ class Graph[T](
     }
     Graph(isDirected, combinedAdjacencyList)
   }
+  
+  def topologicalSort: Option[Seq[T]] = this.stronglyConnectedComponents.find(_.size > 1) match {
+    case Some(_) => None // Graph has cycles, topological sort not possible
+    case None => Some(this.stronglyConnectedComponents.reverse.flatten)
+  }
 
   /**
    * Computes the Strongly Connected Components (SCCs) of the graph using Kosaraju's Algorithm.

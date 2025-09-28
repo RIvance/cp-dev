@@ -15,6 +15,14 @@ case class Environment(
   def withTypeVar[T](name: String, ty: Type)(f: Environment => T): T = {
     f(addTypeVar(name, ty))
   }
+  
+  def withTypeVars[T](vars: Map[String, Type])(f: Environment => T): T = {
+    f(copy(typeVars = typeVars ++ vars))
+  }
+  
+  def withTypeVars[T](vars: (String, Type)*)(f: Environment => T): T = {
+    f(copy(typeVars = typeVars ++ vars.toMap))
+  }
 
   def withTermVar[T](name: String, term: Term)(f: Environment => T): T = {
     f(addTermVar(name, term))

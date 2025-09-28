@@ -1,6 +1,7 @@
 package cp.syntax
 
 import cp.core.{Environment, Module}
+import cp.util.Graph
 
 case class RawModule(
   terms: Map[String, ExprTerm],
@@ -10,12 +11,22 @@ case class RawModule(
   def synthesize(using env: Environment = Environment.empty): Module = {
     
     // We should synthesize types first, so that terms can refer to them.
-    val synthesizedTypes = types.foldLeft(env) { case (envAcc, (name, exprType)) =>
+    val sortedTypes = sortByDependency(types, (ty: ExprType, name: String) => ty.contains(name)) match {
+      case Some(sorted) => sorted
+      case None => throw new RuntimeException("Cyclic dependency in type definitions")
+    }
+
+    val synthesizedTypes = sortedTypes.foldLeft(env) { case (envAcc, (name, exprType)) =>
       val ty = exprType.synthesize(using envAcc)(using Set.empty).normalize
       envAcc.addTypeVar(name, ty)
     }
+
+    val sortedTerms = sortByDependency(terms, (term: ExprTerm, name: String) => term.contains(name)) match {
+      case Some(sorted) => sorted
+      case None => throw new RuntimeException("Cyclic dependency in term definitions")
+    }
     
-    val synthesizedTerms = terms.foldLeft(synthesizedTypes) { case (envAcc, (name, exprTerm)) =>
+    val synthesizedTerms = sortedTerms.foldLeft(synthesizedTypes) { case (envAcc, (name, exprTerm)) =>
       val (term, _) = exprTerm.synthesize(using envAcc)(using Set.empty)
       envAcc.addTermVar(name, term)
     }
@@ -27,6 +38,27 @@ case class RawModule(
         name -> rawMod.synthesize(using synthesizedTerms)
       }
     )
+  }
+  
+  /**
+   * Sort elements by their dependencies.
+   *
+   * @param elements    Map of named elements to sort
+   * @param containsRef Function to check if an element references a name
+   * @return Option containing sorted elements, or None if there's a cyclic dependency
+   */
+  private def sortByDependency[T](
+    elements: Map[String, T], containsRef: (T, String) => Boolean
+  ): Option[Seq[(String, T)]] = {
+    val initGraph = Graph.directed[String].addVertices(elements.keySet)
+    elements.foldLeft(initGraph) { case (graph0, (name, elem)) =>
+      elements.keySet.foldLeft(graph0) { (graph1, otherName) =>
+        if containsRef(elem, otherName) then graph1.addEdge(name, otherName)
+        else graph1
+      }
+    }.topologicalSort.map { sorted =>
+      sorted.collect { case name if elements.contains(name) => name -> elements(name) }
+    }
   }
 }
 

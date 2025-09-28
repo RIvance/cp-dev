@@ -73,8 +73,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case ArrayLiteral(elements: List[ExprTerm])
 
-  case Document(content: ExprTerm)
-
   case Span(term: ExprTerm, span: SourceSpan)
 
   override def withSpan(span: SourceSpan): ExprTerm = this match {
@@ -589,8 +587,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         s"Do term does not check against its type: $doTerm : $bodyType"
       } else (doTerm, bodyType)
     }
-    
-    case ExprTerm.Document(_) => ???
 
     case ExprTerm.Span(term, span) => {
       try term.synthesize catch {
@@ -628,7 +624,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case UnfoldFixpoint(_, term) => term.contains(name)
     case Do(expr, body) => expr.contains(name) || body.contains(name)
     case ArrayLiteral(elements) => elements.exists(_.contains(name))
-    case Document(content) => content.contains(name)
     case Span(term, _) => term.contains(name)
     case Primitive(_) => false
   }
@@ -744,11 +739,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.ArrayLiteral(elements) => {
       ExprTerm.ArrayLiteral(elements.map(_.subst(name, replacement)))
     }
-    
-    case ExprTerm.Document(content) => {
-      ExprTerm.Document(content.subst(name, replacement))
-    }
-    
+
     case ExprTerm.Span(term, span) => {
       ExprTerm.Span(term.subst(name, replacement), span)
     }
@@ -789,7 +780,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case _: FoldFixpoint => s"(${this.toString})"
     case _: UnfoldFixpoint => s"(${this.toString})"
     case _: Do => s"(${this.toString})"
-    case _: Document => s"(${this.toString})"
     case _ => this.toString
   }
 
@@ -860,8 +850,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       s"do ${expr.toStringAtom} in ${body.toString}"
     case ExprTerm.ArrayLiteral(elements) => 
       s"[ ${elements.map(_.toString).mkString(", ")} ]"
-    case ExprTerm.Document(content) => 
-      s"doc { ${content.toString} }"
     case ExprTerm.Span(term, _) => term.toString
   }
 }

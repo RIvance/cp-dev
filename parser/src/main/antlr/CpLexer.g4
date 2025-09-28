@@ -166,6 +166,10 @@ In
     :   'in'
     ;
 
+Out
+    :   'out'
+    ;
+
 With
     :   'with'
     ;
@@ -193,23 +197,28 @@ False
 
 /* IDENTIFIERS */
 
-fragment
-IdChar
-    :   [a-zA-Z] | [0-9] | Underscore | '\''
+Identifier
+    :   ValueIdent | TypeIdent | ContractIdent
     ;
 
 Underscore
     :   '_'
     ;
 
-LowerId
-    :   [a-z] IdChar*
-    ;
+// camelCaseWithEnglishOrGreekLetters with optional postfix single quotation
+//fragment ValueIdent: [a-zα-ω]+([A-ZΑ-Ωa-zα-ω0-9])*('\'')*;
+fragment ValueIdent: [a-z]+([A-Za-z0-9])*('\'')*;
 
-UpperId
-    :   [A-Z] IdChar*
-    ;
+// A single blackboard bold letter or PascalCase
+fragment TypeIdent: PascalCase | BlackboardBoldLetter;
 
+// Quoted PascalCase: A PascalCase with a prefixed single quotation
+fragment ContractIdent: '\''TypeIdent;
+
+fragment PascalCase: [A-Z][a-zA-Z]*;
+
+// Blackboard bold letters (𝔸 - 𝕫)
+fragment BlackboardBoldLetter: [𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ];
 
 /* SYMBOLS */
 
@@ -423,76 +432,4 @@ ParenOpen
 
 ParenClose
     :   ')' -> popMode
-    ;
-
-BacktickOpen
-    :   '`' -> pushMode(DOC_MODE)
-    ;
-
-
-/* DOCUMENT */
-mode DOC_MODE;
-
-Command
-    :   '\\' (LowerId | UpperId) -> pushMode(CMD_MODE)
-    ;
-
-Interpolation
-    :   '\\(' -> pushMode(DEFAULT_MODE)
-    ;
-
-NewLine
-    :   '\\\\'
-    ;
-
-PlainText
-    :   ~[\\\]`]+
-    ;
-
-BracketCloseInDoc
-    :   ']' -> popMode
-    ;
-
-BacktickClose
-    :   '`' -> popMode
-    ;
-
-
-/* COMMAND */
-mode CMD_MODE;
-
-BracketOpenAsArg
-    :   '[' -> pushMode(DOC_MODE)
-    ;
-
-ParenOpenAsArg
-    :   '(' -> pushMode(DEFAULT_MODE)
-    ;
-
-BraceOpenAsArg
-    :   '{' -> pushMode(DEFAULT_MODE)
-    ;
-
-CommandAfterCmd
-    :   '\\' (LowerId | UpperId)
-    ;
-
-InterpolationAfterCmd
-    :   '\\(' -> popMode, pushMode(DEFAULT_MODE)
-    ;
-
-NewLineAfterCmd
-    :   '\\\\' -> popMode
-    ;
-
-PlainTextAfterCmd
-    :   ~[({[\]\\`]+ -> popMode
-    ;
-
-BracketCloseAfterCmd
-    :   ']' -> popMode, popMode
-    ;
-
-BacktickCloseAfterCmd
-    :   '`' -> popMode, popMode
     ;

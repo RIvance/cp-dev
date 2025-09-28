@@ -70,12 +70,16 @@ class Visitor extends CpParserBaseVisitor[
       val name = ctx.`def`.name.getText
       val typeParams = Option(ctx.`def`.params).map(_.visit).getOrElse(Nil)
       val ty: ExprType = ctx.`def`.body.visit
+      val sorts = ctx.`def`.sorts.asScala
       // Wrap type in forall quantifiers if there are type parameters
       val fullType: ExprType = typeParams.foldRight(ty) { 
         (param, acc: ExprType) => ExprType.Forall(param, acc)
       }.withSpan(ctx)
+      val fullTypeWithSorts = sorts.foldRight(fullType) {
+        (sortCtx, acc: ExprType) => ExprType.Signature(sortCtx.getText, s"$$Out$$${sortCtx.getText}", acc)
+      }.withSpan(ctx)
       val constraints = visitConstraints(ctx.`def`.constraints.asScala.toSeq)
-      Definition.TypeDef(name, fullType, constraints).withSpan(ctx.span)
+      Definition.TypeDef(name, fullTypeWithSorts, constraints).withSpan(ctx.span)
     }
     case ctx: TermDefinitionContext => {
       val name = ctx.`def`.name.getText
@@ -229,7 +233,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitCompCtorApp(ctx: CompCtorAppContext): ExprTerm = {
-    val ctor = ctx.ctorName.getText
+    val ctor = ctx.Identifier.getText
     val args: List[ExprTerm | ExprType] = ctx.args.asScala.map(_.visit).toList
     ExprTerm.Var(ctor).foldApplication(args).withSpan(ctx)
   }
@@ -337,7 +341,7 @@ class Visitor extends CpParserBaseVisitor[
 
   override def visitCompExprLetRec(ctx: CompExprLetRecContext): ExprTerm = {
     // let rec value name[typeParams](params): returnType = value in body
-    val name = ctx.name.visit
+    val name = ctx.name.getText
     val typeParams = Option(ctx.typeParams).map(_.visit).getOrElse(Nil)
     val params = ctx.params.asScala.flatMap(_.visit).toList
     val returnType = ctx.ty.visit
@@ -379,7 +383,7 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   override def visitCompExprFixpoint(ctx: CompExprFixpointContext): ExprTerm = {
-    ExprTerm.Fixpoint(ctx.name.visit, ctx.ty.visit, ctx.expr.visit).withSpan(ctx)
+    ExprTerm.Fixpoint(ctx.name.getText, ctx.ty.visit, ctx.expr.visit).withSpan(ctx)
   }
 
   override def visitCompExprFold(ctx: CompExprFoldContext): ExprTerm = {
@@ -454,10 +458,6 @@ class Visitor extends CpParserBaseVisitor[
     def visit: SelfAnnotation[ExprType] = SelfAnnotation[ExprType](ctx.name.getText, Option(ctx.`type`).map(_.visit))
   }
 
-  extension (ctx: TermNameDeclContext) {
-    def visit: String = ctx.getText
-  }
-
   extension (ctx: TypeArgContext) {
     def visit: ExprType = ctx.typeWithSort.visit
   }
@@ -526,15 +526,13 @@ class Visitor extends CpParserBaseVisitor[
   extension (ctx: AtomicExprContext) {
     def visit: ExprTerm = ctx match {
       case varCtx: AtomicExprVarContext =>
-        ExprTerm.Var(varCtx.termName.getText)
+        ExprTerm.Var(varCtx.Identifier.getText)
       case intCtx: AtomicExprIntContext =>
         ExprTerm.Primitive(Literal.IntValue(intCtx.IntLit.getText.toInt))
       case floatCtx: AtomicExprFloatContext =>
         ExprTerm.Primitive(Literal.FloatValue(floatCtx.FloatLit.getText.toFloat))
       case stringCtx: AtomicExprStringContext =>
         ExprTerm.Primitive(Literal.StringValue(stringCtx.StringLit.getText.stripPrefix("\"").stripSuffix("\"")))
-      // case docCtx: AtomicExprDocContext =>
-      //   ExprTerm.Document(docCtx.document.visit)
       case unitCtx: AtomicExprUnitContext =>
         ExprTerm.Primitive(Literal.UnitValue)
       case boolCtx: AtomicExprBoolContext =>
@@ -544,11 +542,11 @@ class Visitor extends CpParserBaseVisitor[
       case recordCtx: AtomicExprRecordContext => 
         recordCtx.record.visit
       case tupleCtx: AtomicExprTupleContext => 
-        tupleCtx.tuple.visit
+        ExprTerm.Tuple(tupleCtx.elements.asScala.map(_.visit).toList)
       case updateCtx: AtomicExprRecordUpdateContext => 
         updateCtx.recordUpdate.visit
       case ctorCtx: AtomicExprCtorContext => 
-        ExprTerm.Var(ctorCtx.ctorName.getText)
+        ExprTerm.Var(ctorCtx.Identifier.getText)
       case parenCtx: AtomicExprParenContext => 
         parenCtx.typedExpr.visit
         
@@ -610,10 +608,6 @@ class Visitor extends CpParserBaseVisitor[
     ExprTerm.Record(fields)
   }
 
-  extension (ctx: TupleContext) def visit: ExprTerm = {
-    ExprTerm.Tuple(ctx.elements.asScala.map(_.visit).toList)
-  }
-
   extension (ctx: RecordUpdateContext) def visit: ExprTerm = {
     val record = ctx.recordExpr.visit
     val updates = ctx.fields.asScala.map { field =>
@@ -655,11 +649,18 @@ class Visitor extends CpParserBaseVisitor[
   override def visitTypeTrait(ctx: TypeTraitContext): ExprType = {
     val inType = ctx.inType.visit
     val outType = Option(ctx.outType).map(_.visit)
-    ExprType.Trait(Some(inType), outType.getOrElse(ExprType.Primitive(LiteralType.UnitType)))
+    ExprType.Trait(
+      Some(inType), 
+      outType.getOrElse(ExprType.Primitive(LiteralType.UnitType))
+    ).withSpan(ctx)
   }
 
   override def visitTypeRef(ctx: TypeRefContext): ExprType = {
-    ExprType.Ref(ctx.typeWithSort.visit)
+    ExprType.Ref(ctx.typeWithSort.visit).withSpan(ctx)
+  }
+
+  override def visitTypeOut(ctx: TypeOutContext): ExprType = {
+    ExprType.SortOut(ctx.sortName.getText).withSpan(ctx)
   }
 
   override def visitTypeApp(ctx: TypeAppContext): ExprType = {
@@ -682,11 +683,10 @@ class Visitor extends CpParserBaseVisitor[
 
   override def visitTypeWithSort(ctx: TypeWithSortContext): ExprType = {
     val baseType = ctx.typeLiteral.visit
-    val sorts = Option(ctx.sort).map(_.asScala.map(_.visit).toList).getOrElse(Nil)
-    // TODO: Apply sorts to baseType
+    val sorts = Option(ctx.sorts).map(_.asScala.map(_.visit).toList).getOrElse(Nil)
     // See <https://i.cs.hku.hk/~bruno/papers/toplas2021.pdf>
     //  page 24. An Informal Introduction to the Elaboration
-    baseType
+    sorts.foldRight(baseType) { (sort, acc) => ExprType.SortApply(acc, sort) }
   }
 
   override def visitTypeIdent(ctx: TypeIdentContext): ExprType = {
@@ -703,8 +703,13 @@ class Visitor extends CpParserBaseVisitor[
   override def visitTypeRecord(ctx: TypeRecordContext): ExprType = visitRecordType(ctx.recordType)
 
   override def visitRecordType(ctx: RecordTypeContext): ExprType = {
-    val fields = ctx.fields.asScala.map { field =>
-      field.ident.getText -> field.ty.visit
+    val fields: Map[String, ExprType] = ctx.fields.asScala.map {
+      case field: RecordTypeFieldPlainContext => field.ident.getText -> field.ty.visit
+      case field: RecordTypeFieldProtoContext => {
+        field.ident.getText -> field.paramTypes.asScala.map(_.visit).foldRight(field.returnType.visit) { 
+          (paramType, acc) => ExprType.Arrow(paramType, acc)
+        }
+      }
     }.toMap
     ExprType.Record(fields).withSpan(ctx)
   }
@@ -716,10 +721,10 @@ class Visitor extends CpParserBaseVisitor[
   override def visitTypeParen(ctx: TypeParenContext): ExprType = ctx.ty.visit
 
   extension (ctx: SortContext) {
-    def visit: (ExprType, Option[ExprType]) = {
+    def visit: ExprType.Sort = {
       val inType = ctx.inType.visit
       val outType = Option(ctx.outType).map(_.visit)
-      (inType, outType)
+      ExprType.Sort(inType, outType)
     }
   }
 
@@ -732,6 +737,7 @@ class Visitor extends CpParserBaseVisitor[
       case ctx: TypeForAllContext => visitTypeForAll(ctx)
       case ctx: TypeFixContext => visitTypeFix(ctx)
       case ctx: TypeTraitContext => visitTypeTrait(ctx)
+      case ctx: TypeOutContext => visitTypeOut(ctx)
       case ctx: TypeRefContext => visitTypeRef(ctx)
       case ctx: TypeAppContext => visitTypeApp(ctx)
       case ctx: TypeSpineContext => visitTypeSpine(ctx)
@@ -751,10 +757,6 @@ class Visitor extends CpParserBaseVisitor[
       case ctx: TypeArrayContext => visitTypeArray(ctx)
       case ctx: TypeParenContext => visitTypeParen(ctx)
     }
-  }
-
-  extension (ctx: RecordTypeFieldContext) {
-    def visit: (String, ExprType) = (ctx.ident.getText, ctx.ty.visit)
   }
 
   enum Pattern {

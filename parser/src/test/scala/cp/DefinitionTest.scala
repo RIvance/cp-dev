@@ -193,8 +193,8 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       type Print = { print : String };
       
       type AddSig<Exp> = {
-        Lit: Int -> Exp;
-        Add: Exp -> Exp -> Exp;
+        Lit(Int): out Exp;
+        Add(Exp, Exp): out Exp;
       };
       
       evalAdd = trait implements AddSig<Eval> => {
@@ -203,16 +203,16 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       };
       
       printAdd = trait implements AddSig<Print> => {
-        (Lit     n).print = toString n;
+        (Lit     n).print = n.toString;
         (Add e1 e2).print = "(" ++ e1.print ++ " + " ++ e2.print ++ ")";
       };
       
       expAdd Exp = trait [self : AddSig<Exp>] => {
-        exp = open self in Add (Lit 4) (Lit 8);
+        exp = open self in Add(Lit 4, Lit 8);
       };
       
       type MulSig<Exp> = AddSig<Exp> & {
-        Mul : Exp -> Exp -> Exp;
+        Mul(Exp, Exp): Exp;
       };
       
       evalMul = trait implements MulSig<Eval> inherits evalAdd => {
@@ -223,8 +223,8 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
         (Mul e1 e2).print = "(" ++ e1.print ++ " * " ++ e2.print ++ ")";
       };
       
-      expMul Exp = trait [self : MulSig<Exp>] inherits expAdd @Exp => {
-        override exp = open self in Mul super.exp (Lit 4);
+      expMul Exp = trait [self : MulSig<Exp>] inherits expAdd[Exp] => {
+        override exp = open self in Mul(super.exp, Lit 4);
       };
     """) { implicit env =>
       """
