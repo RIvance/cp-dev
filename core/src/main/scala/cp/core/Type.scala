@@ -224,6 +224,11 @@ enum Type {
       case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
         domain2 <:< domain1 && codomain1 <:< codomain2
       }
+
+      // (A -> B) & (C -> D) <: (A & C) -> (B & D)
+      case (Intersection(Arrow(a, b), Arrow(c, d)), Arrow(ac, bd)) => {
+        (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)
+      }
       
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)

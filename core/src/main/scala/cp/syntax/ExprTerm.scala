@@ -430,8 +430,13 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             }
           }
           
-          // TODO: The constructor type
-          val constructorType: Type = ???
+          val constructorType: Type = expectedConsTypeOpt.getOrElse {
+            // If we do not have an expected type, we construct one from the parameter types
+            val returnType = Type.Record(expectedMethodTypes)
+            expectedConstructorParamTypes.foldRight(returnType) {
+              (paramType, accReturnType) => Type.Arrow(paramType, accReturnType)
+            }
+          }
 
           consName -> (constructorBody, constructorType)
         }
@@ -623,7 +628,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 "super" -> Term.Typed(Term.Var("super"), inheritCodomain),
               ) { implicit env =>
                 // Synthesize body in the new environment
-                val (bodyTerm: Term, bodyType: Type) = body.synthesize
+                val (bodyTerm: Term, bodyType: Type) = body.synthesize(using implTypeOpt)
                 // Identify which fields in bodyType override fields in inheritCodomain
                 val overrideLabels: Set[String] = body.collectOverrideFields
 
@@ -633,6 +638,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                     lhs.getFieldTypes ++ rhs.getFieldTypes
                   case _ => Map.empty
                 }
+                
                 // Check that overridden fields are subtypes of inherited fields
                 val overriddenFields: Map[String, Type] = bodyType.getFieldTypes.filter {
                   case (label, _) => overrideLabels.contains(label)
@@ -668,19 +674,24 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                     Type.Record(fieldTypes.filterNot { case (label, _) => overrideLabels.contains(label) })
                   case _ => ty
                 }
+
                 // Override codomain with body definitions
                 val preparedCodomain = inheritCodomain.prepareIntersection
                 if !preparedCodomain.disjointWith(bodyType) then TypeNotMatch.raise {
                   s"Trait body type $bodyType is not disjoint with inherited trait codomain $inheritCodomain"
                 }
+                
+                // FIXME: `override` doesn't remove fields from the super trait,
+                //  both overridden and non-overridden fields are merged together.
+
                 // Do the intersection to get the final codomain where overridden fields are replaced
                 val overriddenCodomain = Type.Intersection(preparedCodomain, bodyType).normalize
                 val resultTerm = Term.Apply(
                   func = Term.Lambda(
                     param = "super",
-                    paramType = inheritDomain,
+                    paramType = inheritCodomain,
                     body = Term.Merge(
-                      Term.Typed(Term.Var("super"), overriddenCodomain),
+                      Term.Typed(Term.Var("super"), inheritCodomain),
                       bodyTerm,
                       MergeBias.Neutral,
                     )
@@ -695,7 +706,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 val traitTerm = Term.Coercion(selfName, selfType, resultTerm)
                 val traitType = Type.Trait(selfType, overriddenCodomain)
 
-                if implTypeOpt.exists(implType => !(bodyType <:< implType)) then TypeNotMatch.raise {
+                if implTypeOpt.exists(implType => !(overriddenCodomain <:< implType)) then TypeNotMatch.raise {
                   s"Trait codomain $overriddenCodomain does not implement declared interface ${implTypeOpt.get}"
                 } else if !traitTerm.check(traitType) then TypeNotMatch.raise {
                   s"Trait term does not check against its type: $traitTerm : $traitType"
@@ -711,7 +722,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         // Match inheritExprOpt - There is no inherited trait
         case None => {
           env.withTermVar(selfName, Term.Typed(Term.Var(selfName), selfType)) { implicit env =>
-            val (bodyTerm: Term, bodyType: Type) = body.synthesize
+            val (bodyTerm: Term, bodyType: Type) = body.synthesize(using implTypeOpt)
             val traitCodomain = bodyType.normalize
             val traitTerm = Term.Coercion(
               param = selfName,
@@ -987,15 +998,15 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       case None => s"let $name = ${value.toString} in ${body.toString}"
     }
     case ExprTerm.Record(fields) => 
-      s"{ ${fields.map { case (k, v) => s"$k = ${v.toString}" }.mkString(", ")} }"
+      s"{ ${fields.map { case (k, v) => s"$k = ${v.toString}" }.mkString("; ")} }"
     case ExprTerm.Tuple(elements) => 
       s"( ${elements.map(_.toString).mkString(", ")} )"
     case ExprTerm.Merge(left, right, MergeBias.Neutral) => 
       s"${left.toStringAtom} ,, ${right.toStringAtom}"
     case ExprTerm.Merge(left, right, MergeBias.Left) => 
-      s"${left.toStringAtom} ,<, ${right.toStringAtom}"
+      s"${left.toStringAtom} ,+ ${right.toStringAtom}"
     case ExprTerm.Merge(left, right, MergeBias.Right) => 
-      s"${left.toStringAtom} ,>, ${right.toStringAtom}"
+      s"${left.toStringAtom} +, ${right.toStringAtom}"
     case ExprTerm.Projection(record, field) => 
       s"${record.toStringAtom}.$field"
     case ExprTerm.TypeApply(term, tyArgs) => 
@@ -1003,7 +1014,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.OpenIn(record, body) => 
       s"open ${record.toString} in ${body.toString}"
     case ExprTerm.Update(record, updates) => 
-      s"${record.toStringAtom} with { ${updates.map { case (k, v) => s"$k = ${v.toString}" }.mkString(", ")} }"
+      s"${record.toStringAtom} with { ${updates.map { case (k, v) => s"$k = ${v.toString}" }.mkString("; ")} }"
     case ExprTerm.Trait(selfAnno, impl, inherit, body) => {
       // trait [self: SelfType] implements ImplType inherits InheritExpr { body }
       val selfStr = selfAnno match {
