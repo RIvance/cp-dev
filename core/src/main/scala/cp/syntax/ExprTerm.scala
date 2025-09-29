@@ -490,18 +490,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             case (_, Type.Primitive(LiteralType.TopType)) => leftDomain
             case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
-          // TODO:
-          //  Find out why the original implementation used the following coercion term as result:
-          //  Term.Coercion(
-          //    param = "self",
-          //    paramType = mergedDomain,
-          //    body = Term.Merge(
-          //      Term.Apply(leftTerm, Term.Var("self")),
-          //      Term.Apply(rightTerm, Term.Var("self")),
-          //      MergeBias.Neutral
-          //    ),
-          //  )
-          //  see 
           Term.Merge(leftTerm, rightTerm) -> Type.Trait(
             domain = mergedDomain,
             codomain = Type.Intersection(leftCodomain, rightCodomain).normalize
@@ -678,12 +666,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 // Override codomain with body definitions
                 val preparedCodomain = inheritCodomain.prepareIntersection
                 if !preparedCodomain.disjointWith(bodyType) then TypeNotMatch.raise {
-                  s"Trait body type $bodyType is not disjoint with inherited trait codomain $inheritCodomain"
+                  s"Trait body type $bodyType is not disjoint with inherited trait codomain $preparedCodomain"
                 }
                 
-                // FIXME: `override` doesn't remove fields from the super trait,
-                //  both overridden and non-overridden fields are merged together.
-
                 // Do the intersection to get the final codomain where overridden fields are replaced
                 val overriddenCodomain = Type.Intersection(preparedCodomain, bodyType).normalize
                 val resultTerm = Term.Apply(
@@ -691,9 +676,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                     param = "super",
                     paramType = inheritCodomain,
                     body = Term.Merge(
-                      Term.Typed(Term.Var("super"), inheritCodomain),
+                      Term.Typed(Term.Var("super"), preparedCodomain),
                       bodyTerm,
-                      MergeBias.Neutral,
+                      MergeBias.Right,
                     )
                   ),
                   arg = Term.Apply(inheritTerm, Term.Var(selfName)),

@@ -186,7 +186,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       "(new even ,, odd).isOdd(41)" >>> (BoolValue(true).toTerm, BoolType.toType)
     }
   }
-  
+
   test("synth trait with sort") {
     module("""
       type Eval = { eval : Int };
@@ -197,33 +197,33 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
         Add(Exp, Exp): out Exp;
       };
       
-      evalAdd = trait implements AddSig<Eval> => {
+      def evalAdd = trait implements AddSig<Eval> => {
         (Lit     n).eval = n;
         (Add e1 e2).eval = e1.eval + e2.eval;
       };
       
-      printAdd = trait implements AddSig<Print> => {
+      def printAdd = trait implements AddSig<Print> => {
         (Lit     n).print = n.toString;
         (Add e1 e2).print = "(" ++ e1.print ++ " + " ++ e2.print ++ ")";
-      };
-      
-      expAdd Exp = trait [self : AddSig<Exp>] => {
-        exp = open self in Add(Lit 4, Lit 8);
       };
       
       type MulSig<Exp> = AddSig<Exp> & {
         Mul(Exp, Exp): Exp;
       };
       
-      evalMul = trait implements MulSig<Eval> inherits evalAdd => {
+      def evalMul = trait implements MulSig<Eval> inherits evalAdd => {
         (Mul e1 e2).eval = e1.eval * e2.eval;
       };
       
-      printMul = trait implements MulSig<Print> inherits printAdd => {
+      def printMul = trait implements MulSig<Print> inherits printAdd => {
         (Mul e1 e2).print = "(" ++ e1.print ++ " * " ++ e2.print ++ ")";
       };
       
-      expMul Exp = trait [self : MulSig<Exp>] inherits expAdd[Exp] => {
+      def expAdd[Exp] = trait [self : AddSig<Exp>] => {
+        exp = open self in Add(Lit 4, Lit 8);
+      };
+      
+      def expMul[Exp] = trait [self : MulSig<Exp>] inherits expAdd[Exp] => {
         override exp = open self in Mul(super.exp, Lit 4);
       };
     """) { implicit env =>

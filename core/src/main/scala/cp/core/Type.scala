@@ -229,7 +229,7 @@ enum Type {
       case (Intersection(Arrow(a, b), Arrow(c, d)), Arrow(ac, bd)) => {
         (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)
       }
-      
+
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
         env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
@@ -412,8 +412,9 @@ enum Type {
     }
   }
 
-  private def isTop: Boolean = this match {
+  private def isTopLike: Boolean = this match {
     case Primitive(TopType) => true
+    // case Record(fields) if fields.isEmpty => true
     case _ => false
   }
 
@@ -443,7 +444,7 @@ enum Type {
     }
 
     // TODO: Figure out why this case returns true in the previous implementation
-    case (left, right) if left.isTop || right.isTop => false
+    case (left, right) if left.isTopLike || right.isTopLike => false
     case (left, right) if left.isBottomLike || right.isBottomLike => true
 
     case (Record(firstFields), Record(secondFields)) => {
@@ -498,10 +499,10 @@ enum Type {
   infix def diff(that: Type)(using env: Environment): Type = (this, that) match {
 
     case (left, right) if left <:< right => Type.bottom
-    case (left, right) if right.isTop => Type.bottom
+    case (left, right) if right.isTopLike => Type.bottom
     // In fact, we cannot "dig a hole" in top type (universal set)
     //  so we just return top type here
-    case (left, right) if left.isTop => Type.top
+    case (left, right) if left.isTopLike => Type.top
     case (left, right) if left unify right => Type.bottom
     case (left, right) if left.split.isDefined => {
       val (left1, left2) = left.split.get
@@ -610,6 +611,7 @@ enum Type {
       case Some((left, right)) => Some((Arrow(domain, left), Arrow(domain, right)))
       case None => None
     }
+    case Record(fields) if fields.isEmpty => None
     case Record(fields) => {
       val splitFields = fields.map { case (label, ty) => label -> ty.split }
       if splitFields.exists(_._2.isEmpty) then None else {

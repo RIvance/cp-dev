@@ -147,7 +147,7 @@ enum Term {
         env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv => 
           val bodyType = body.infer(using newEnv)
           if !(bodyType <:< ty) then TypeNotMatch.raise {
-            s"Body type ${bodyType} does not match annotated type `${ty}` in fixpoint"
+            s"Body type `${bodyType}` does not match annotated type `${ty}` in fixpoint"
           } else bodyType
         }
       }
@@ -254,30 +254,30 @@ enum Term {
         } else true
       case None => false
     }
-    
-//    case Apply(func, arg) => func.infer match {
-//      case Type.Arrow(paramType, returnType) =>
-//        if !(returnType <:< expectedType) then TypeNotMatch.raise {
-//          s"Function return type ${returnType} does not match expected type ${expectedType}"
-//        } else arg.check(paramType)
-//      case Type.Trait(_, _) => 
-//        // convert to a coercion application
-//        Term.CoeApply(func, arg).check(expectedType)
-//      case fnType@Type.Intersection(_, _) => {
-//        val argType: Type = arg.infer
-//        // Try to find a function type in the intersection that can produce expectedType
-//        fnType.testApplicationReturn(argType) match {
-//          case Some(returnType) =>
-//            if !(returnType <:< expectedType) then TypeNotMatch.raise {
-//              s"Function return type ${returnType} does not match expected type ${expectedType}"
-//            } else true
-//          case None => TypeNotMatch.raise {
-//            s"Function type ${fnType} cannot be applied to argument type ${argType}"
-//          }
-//        }
-//      }
-//      case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
-//    }
+
+    // case Apply(func, arg) => func.infer match {
+    //   case Type.Arrow(paramType, returnType) =>
+    //     if !(returnType <:< expectedType) then TypeNotMatch.raise {
+    //       s"Function return type ${returnType} does not match expected type ${expectedType}"
+    //     } else arg.check(paramType)
+    //   case Type.Trait(_, _) => 
+    //     // convert to a coercion application
+    //     Term.CoeApply(func, arg).check(expectedType)
+    //   case fnType@Type.Intersection(_, _) => {
+    //     val argType: Type = arg.infer
+    //     // Try to find a function type in the intersection that can produce expectedType
+    //     fnType.testApplicationReturn(argType) match {
+    //       case Some(returnType) =>
+    //         if !(returnType <:< expectedType) then TypeNotMatch.raise {
+    //           s"Function return type ${returnType} does not match expected type ${expectedType}"
+    //         } else true
+    //       case None => TypeNotMatch.raise {
+    //         s"Function type ${fnType} cannot be applied to argument type ${argType}"
+    //       }
+    //     }
+    //   }
+    //   case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
+    // }
     
     case CoeApply(coe, arg) => coe.infer.testApplicationReturn(arg.infer) match {
       case Some(returnType) =>
@@ -287,26 +287,26 @@ enum Term {
       case None => false
     }
 
-//    case CoeApply(coe, arg) => coe.infer match {
-//      case Type.Trait(paramType, returnType) =>
-//        if !(returnType <:< expectedType) then TypeNotMatch.raise {
-//          s"Coercion return type ${returnType} does not match expected type ${expectedType}"
-//        } else arg.check(paramType)
-//      case fnType@Type.Intersection(_, _) => {
-//        // Try to find a coercion function type in the intersection that can produce expectedType
-//        val argType: Type = arg.infer
-//        fnType.testApplicationReturn(argType) match {
-//          case Some(returnType) =>
-//            if !(returnType <:< expectedType) then TypeNotMatch.raise {
-//              s"Coercion return type ${returnType} does not match expected type ${expectedType}"
-//            } else true
-//          case None => TypeNotMatch.raise {
-//            s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
-//          }
-//        }
-//      }
-//      case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
-//    }
+    // case CoeApply(coe, arg) => coe.infer match {
+    //   case Type.Trait(paramType, returnType) =>
+    //     if !(returnType <:< expectedType) then TypeNotMatch.raise {
+    //       s"Coercion return type ${returnType} does not match expected type ${expectedType}"
+    //     } else arg.check(paramType)
+    //   case fnType@Type.Intersection(_, _) => {
+    //     // Try to find a coercion function type in the intersection that can produce expectedType
+    //     val argType: Type = arg.infer
+    //     fnType.testApplicationReturn(argType) match {
+    //       case Some(returnType) =>
+    //         if !(returnType <:< expectedType) then TypeNotMatch.raise {
+    //           s"Coercion return type ${returnType} does not match expected type ${expectedType}"
+    //         } else true
+    //       case None => TypeNotMatch.raise {
+    //         s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
+    //       }
+    //     }
+    //   }
+    //   case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
+    // }
     
     case TypeApply(term, tyArg) => term.infer match {
       case Type.Forall(param, body, constraints) =>
@@ -464,12 +464,25 @@ enum Term {
       case Some(term) => term.eval
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
-    
+
     case Typed(term, expectedType) => {
       if !term.check(expectedType) then TypeNotMatch.raise {
         s"Annotated type ${expectedType} does not match inferred type ${term.infer}"
       } else term.eval.filter(expectedType) // TODO: do we need to keep the type annotation after evaluation?
     }
+
+    // TODO: In fact, we should consider using the following implementation
+    //  which preserves the type annotation if the term is not fully evaluated.
+    // case Typed(term, expectedType) => {
+    //   val normalizedExpectedType = expectedType.normalize
+    //   val filteredTerm: Term = term.eval.filter(normalizedExpectedType)
+    //   val filteredTermInfer = filteredTerm.infer
+    //   if !term.check(normalizedExpectedType) then TypeNotMatch.raise {
+    //     s"Annotated type ${normalizedExpectedType} does not match inferred type ${term.infer}"
+    //   } else if filteredTerm.isValue || (filteredTermInfer unify normalizedExpectedType) then filteredTerm else {
+    //     Term.Typed(filteredTerm, normalizedExpectedType)
+    //   }
+    // }
     
     case Primitive(_) => this
     
@@ -734,7 +747,24 @@ enum Term {
       }
     }
 
-    case Diff(_, _) => ???
+    case Diff(left, right) => (left, right) match {
+      case (Record(leftFields), Record(rightFields)) => {
+        // Differencing two records, recursively difference common fields.
+        //  for a pair of common fields `f: A` and `f: B`,
+        //   we remove `f` from the left record if `B <: A`
+        val commonFields = leftFields.keySet.intersect(rightFields.keySet)
+        val reservedCommonFields = commonFields.filterNot { fieldName =>
+          val leftFieldType = leftFields(fieldName).infer
+          val rightFieldType = rightFields(fieldName).infer
+          rightFieldType <:< leftFieldType
+        }.map { fieldName =>
+          (fieldName, Term.Diff(leftFields(fieldName), rightFields(fieldName)).eval)
+        }.toMap
+        val leftOnlyFields = leftFields.filterNot { (name, _) => commonFields.contains(name) }
+        Term.Record(leftOnlyFields ++ reservedCommonFields)
+      }
+      case _ => Term.Diff(left.eval, right.eval)
+    }
 
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval
@@ -839,10 +869,49 @@ enum Term {
   
   def isValue: Boolean = this.isValue(Set.empty)
 
-  /**
-   * For merged terms, filter out the branches that do not conform to the expected type.
-   */
   def filter(expectedType: Type)(using env: Environment): Term = this match {
+
+    // For records, only keep the fields that are present in the expected type,
+    // TODO: the current implementation drops fields that are not in the expected type
+    //  However, in some cases we may want to keep those fields because they are referenced
+    //  from fields that are in the expected type.
+    //  For example, consider the following record: `{ a = 42; b = a + 1; c = "hello" }`
+    //  If the expected type is `{ b: Int }`, we should keep field `a` as well,
+    //  otherwise field `b` will be ill-typed after filtering.
+    //  To solve this problem, we need to perform a reachability analysis on the record fields
+    //  starting from the fields in the expected type.
+    //  This is simple for record that do not contain mutual recursion,
+    //  but may be tricky for records that contain mutual recursion.
+    //  We leave this as future work for now.
+    case Record(fields) => {
+      val expectedFieldTypes = expectedType.normalize match {
+        case Type.Record(fieldTypes) => fieldTypes
+        case other => TypeNotMatch.raise(s"Expected record type, but got: ${other}")
+      }
+      val filteredFields = fields.flatMap { (name, term) =>
+        expectedFieldTypes.get(name) match {
+          case Some(expectedFieldType) => Some((name, term.filter(expectedFieldType)))
+          case None => None // Field not in expected type, drop it.
+        }
+      }
+      Term.Record(filteredFields)
+    }
+
+    // case Fixpoint(name, ty, Record(fields)) => {
+    //   val expectedFieldTypes = expectedType.normalize match {
+    //     case Type.Record(fieldTypes) => fieldTypes
+    //     case other => TypeNotMatch.raise(s"Expected record type, but got: ${other}")
+    //   }
+    //   val filteredFields = fields.flatMap { (name, term) =>
+    //     expectedFieldTypes.get(name) match {
+    //       case Some(expectedFieldType) => Some((name, term.filter(expectedFieldType)))
+    //       case None => None // Field not in expected type, drop it.
+    //     }
+    //   }
+    //   Term.Fixpoint(name, ty, Term.Record(filteredFields))
+    // }
+    
+    // For merged terms, filter out the branches that do not conform to the expected type.
     case Merge(left, right, MergeBias.Neutral) => {
       val leftType = left.infer
       val rightType = right.infer
@@ -850,17 +919,18 @@ enum Term {
         case (true, true) => Term.Merge(left.filter(expectedType), right.filter(expectedType), MergeBias.Neutral)
         case (true, false) => left.filter(expectedType)
         case (false, true) => right.filter(expectedType)
-        case (false, false) => TypeNotMatch.raise {
-          s"Neither branch of merge conforms to expected type: ${expectedType}"
-        }
+        case (false, false) => Term.Merge(left, right, MergeBias.Neutral)
       }
     }
+    
     case Merge(left, right, MergeBias.Left) => {
       Term.Merge(left.filter(expectedType), Term.Diff(right, left).filter(expectedType), MergeBias.Neutral)
     }
+    
     case Merge(left, right, MergeBias.Right) => {
       Term.Merge(Term.Diff(left, right).filter(expectedType), right.filter(expectedType), MergeBias.Neutral)
     }
+    
     case _ => this
   }
   
