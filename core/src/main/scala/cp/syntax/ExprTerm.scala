@@ -184,21 +184,15 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       
     case ExprTerm.Fixpoint(name, tyExpr, recursiveBody) => {
       val ty = tyExpr.synthesize
-      ty match {
-        case Type.Arrow(domain, codomain) => 
-          env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
-            val (bodyTerm, bodyType) = recursiveBody.synthesize(using env)
-            if !(bodyType <:< ty) then TypeNotMatch.raise {
-              s"Body type of fixpoint does not match annotated type: $bodyType vs $ty"
-            }
-            val fixpointTerm = Term.Fixpoint(name, ty, bodyTerm)
-            if !fixpointTerm.check(ty) then TypeNotMatch.raise {
-              s"Fixpoint term does not check against its type: $fixpointTerm : $ty"
-            } else (fixpointTerm, ty)
-          }
-        case _ => TypeNotMatch.raise {
-          s"Fixpoint $name must have a function type, but got: $ty"
+      env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit env =>
+        val (bodyTerm, bodyType) = recursiveBody.synthesize(using env)
+        if !(bodyType <:< ty) then TypeNotMatch.raise {
+          s"Fixpoint body type does not match annotated type: $bodyType vs $ty"
         }
+        val fixTerm = Term.Fixpoint(name, ty, bodyTerm)
+        if !fixTerm.check(ty) then TypeNotMatch.raise {
+          s"Fixpoint term does not check against its type: $fixTerm : $ty"
+        } else (fixTerm, ty)
       }
     }
     
