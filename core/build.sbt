@@ -1,13 +1,13 @@
-ThisBuild / version := "0.1.0-SNAPSHOT"
-
-ThisBuild / scalaVersion := "3.3.4"
+name := "core"
+version := "0.1"
+scalaVersion := "3.3.6"
+organization := "cp"
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.2.18" % Test,
+  "org.scalatest" %% "scalatest" % "3.2.19" % Test,
 )
 
-lazy val root = (project in file("."))
+lazy val core = (project in file("."))
   .settings(
-    name := "core",
-    idePackagePrefix := Some("cp")
+    name := "core"
   )

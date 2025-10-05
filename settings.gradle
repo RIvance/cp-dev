@@ -6,6 +6,8 @@ pluginManagement {
 }
 
 rootProject.name = 'cp'
+
 include 'core'
+include 'intermediate'
 include 'parser'
 include 'cli'
