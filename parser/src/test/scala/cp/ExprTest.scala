@@ -1,8 +1,8 @@
 package cp
 
-import cp.core.{Environment, Literal, LiteralType, Type}
 import cp.core.Literal.*
 import cp.core.LiteralType.*
+import cp.core.{Literal, LiteralType, Type}
 import cp.prelude.Prelude
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
@@ -10,14 +10,14 @@ import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
-  given Environment = Prelude.environment
+  given Env = Prelude.environment
   
   test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)
   }
   
   test("term in environment") {
-    given env: Environment = Prelude.environment.addTermVar("x", IntValue(42).toTerm)
+    given env: Env = Prelude.environment.addValueVar("x", IntValue(42).toTerm)
     "x" >>> (IntValue(42).toTerm, IntType.toType)
   }
   

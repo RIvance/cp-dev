@@ -1,11 +1,13 @@
 package cp.syntax
 
-import cp.core.{verify, synthesize, Constraint, Environment, LiteralType, Type}
+import cp.core.{Constraint, LiteralType, Type, TypeEnvironment, synthesize, verify}
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
-import cp.util.{OptionalSpanned, SourceSpan}
+import cp.util.{OptionalSpanned, RecNamed, SourceSpan}
 
-enum ExprType extends OptionalSpanned[ExprType] {
+private type Env = TypeEnvironment[Type]
+
+enum ExprType extends OptionalSpanned[ExprType] with RecNamed {
 
   case Primitive(ty: LiteralType)
 
@@ -46,7 +48,7 @@ enum ExprType extends OptionalSpanned[ExprType] {
     case _ => ExprType.Span(this, span)
   }
 
-  def synthesize(using env: Environment)(
+  def synthesize(using env: Env)(
     using constraints: Set[Constraint[ExprType]] = Set.empty
   )(using sortMap: Map[String, String] = Map.empty[String, String]): Type = {
     
@@ -54,7 +56,7 @@ enum ExprType extends OptionalSpanned[ExprType] {
 
       case Primitive(ty) => Type.Primitive(ty)
 
-      case Var(name) => env.typeVars.get(name) match {
+      case Var(name) => env.types.get(name) match {
         case Some(ty) => ty
         case None => UnboundVariable.raise {
           s"Type variable $name is not bound in the current environment"

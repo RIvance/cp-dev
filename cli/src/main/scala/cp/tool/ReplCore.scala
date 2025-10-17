@@ -17,7 +17,7 @@ private class ReplCore {
   }
 
   private val visitor: Visitor = Visitor()
-  implicit var environment: Environment = Prelude.environment
+  implicit var environment: Environment[Type, Term] = Prelude.environment
 
   def iterate(source: String): Unit = {
 
@@ -64,7 +64,7 @@ private class ReplCore {
             val evaluatedTerm = term.eval
             // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
             println()
-            environment = environment.addTermVar(name, evaluatedTerm)
+            environment = environment.addValueVar(name, evaluatedTerm)
           }
           case Definition.TypeDef(name, typeExpr, constraints) => {
             val ty: Type = typeExpr.synthesize
@@ -83,7 +83,7 @@ private class ReplCore {
             val evaluatedTerm = term.eval
             // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
             println()
-            environment = environment.addTermVar(name, evaluatedTerm)
+            environment = environment.addValueVar(name, evaluatedTerm)
           }
           case Statement.LetTupleDestruct(names, valueExpr) => ???
           case Statement.LetRecordDestruct(fields, valueExpr) => ???

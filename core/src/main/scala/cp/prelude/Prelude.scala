@@ -7,21 +7,23 @@ import cp.core.LiteralType.*
 object Prelude {
   import NativeImplementations.*
   
-  lazy val environment: Environment = Environment.builder.buildWith { builder =>
-    builder.termVar("+", overloaded(addInt, addFloat))
-    builder.termVar("-", overloaded(subInt, subFloat))
-    builder.termVar("*", overloaded(mulInt, mulFloat))
-    builder.termVar("==", overloaded(eqInt, eqFloat, eqString))
-    builder.termVar("<", overloaded(ltInt, ltFloat))
-    builder.termVar("<=", overloaded(leInt, leFloat))
-    builder.termVar(">", overloaded(gtInt, gtFloat))
-    builder.termVar(">=", overloaded(geInt, geFloat))
-    builder.termVar("&&", logicAnd.toTerm)
-    builder.termVar("||", logicOr.toTerm)
-    builder.termVar("!", logicNot.toTerm)
-    builder.termVar("++", concatString.toTerm)
-    builder.termVar("length", lengthString.toTerm)
-    builder.termVar("toString", overloaded(toStringInt, toStringFloat, toStringBool))
+  private type Env = Environment[Type, Term]
+  
+  lazy val environment: Env = Environment.builder[Type, Term].buildWith { builder =>
+    builder.valueVar("+", overloaded(addInt, addFloat))
+    builder.valueVar("-", overloaded(subInt, subFloat))
+    builder.valueVar("*", overloaded(mulInt, mulFloat))
+    builder.valueVar("==", overloaded(eqInt, eqFloat, eqString))
+    builder.valueVar("<", overloaded(ltInt, ltFloat))
+    builder.valueVar("<=", overloaded(leInt, leFloat))
+    builder.valueVar(">", overloaded(gtInt, gtFloat))
+    builder.valueVar(">=", overloaded(geInt, geFloat))
+    builder.valueVar("&&", logicAnd.toTerm)
+    builder.valueVar("||", logicOr.toTerm)
+    builder.valueVar("!", logicNot.toTerm)
+    builder.valueVar("++", concatString.toTerm)
+    builder.valueVar("length", lengthString.toTerm)
+    builder.valueVar("toString", overloaded(toStringInt, toStringFloat, toStringBool))
   }
   
   private def overloaded(implementations: NativeFunction*): Term = {

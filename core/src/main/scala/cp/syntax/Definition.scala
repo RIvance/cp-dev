@@ -26,5 +26,5 @@ enum Definition extends OptionalSpanned[Definition] {
     case _ => Definition.Spanned(span, this)
   }
   
-  def synthesize(using env: Environment): Term | Type | Module = ???
+  def synthesize(using env: Environment[Type, Term]): Term | Type | Module = ???
 }

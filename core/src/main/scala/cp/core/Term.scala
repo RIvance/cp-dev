@@ -1,11 +1,13 @@
 package cp.core
 
 import cp.error.CoreErrorKind.*
-import cp.util.{Graph, Recoverable}
+import cp.util.{Graph, RecNamed, Recoverable}
 
 import scala.util.{Failure, Success}
 
-enum Term {
+enum Term extends RecNamed {
+
+  type Env = Environment[Type, Term]
   
   case Var(name: String)
 
@@ -71,10 +73,10 @@ enum Term {
   //  Similar to native function calls, it can be partially applied.
   case NativeProcedureCall(procedure: NativeProcedure, args: Seq[Term])
 
-  def infer(using env: Environment): Type = {
+  def infer(using env: Env): Type = {
     val inferredType = this match {
 
-      case Var(name) => env.termVars.get(name) match {
+      case Var(name) => env.values.get(name) match {
         case Some(term) => term.infer
         case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
       }
@@ -126,13 +128,13 @@ enum Term {
       }
 
       case Lambda(param, paramType, body) => {
-        env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+        env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
           implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv))
         }
       }
 
       case Coercion(param, paramType, body) => {
-        env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+        env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
           implicit newEnv => Type.Trait(paramType, body.infer(using newEnv))
         }
       }
@@ -144,7 +146,7 @@ enum Term {
       }
 
       case Fixpoint(name, ty, body) => {
-        env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv => 
+        env.withValueVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv =>
           val bodyType = body.infer(using newEnv)
           if !(bodyType <:< ty) then TypeNotMatch.raise {
             s"Body type `${bodyType}` does not match annotated type `${ty}` in fixpoint"
@@ -229,9 +231,9 @@ enum Term {
     inferredType.normalize
   }
 
-  def check(expectedType: Type)(using env: Environment): Boolean = this match {
+  def check(expectedType: Type)(using env: Env): Boolean = this match {
 
-    case Var(name) => env.termVars.get(name) match {
+    case Var(name) => env.values.get(name) match {
       case Some(Typed(_, ty)) => if !(ty <:< expectedType) then TypeNotMatch.raise {
         s"Variable '$name' has type ${ty}, which does not match expected type ${expectedType}"
       } else true
@@ -326,7 +328,7 @@ enum Term {
         if !(paramType <:< expectedParamType) then TypeNotMatch.raise {
           s"Lambda parameter type ${paramType} does not match expected type ${expectedParamType}"
         } else {
-          env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
             implicit newEnv => body.check(expectedReturnType)(using newEnv)
           }
         }
@@ -338,7 +340,7 @@ enum Term {
         if !(paramType <:< expectedParamType) then TypeNotMatch.raise {
           s"Coercion parameter type ${paramType} does not match expected type ${expectedParamType}"
         } else {
-          env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) {
+          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
             implicit newEnv => body.check(expectedReturnType)(using newEnv)
           }
         }
@@ -360,7 +362,7 @@ enum Term {
     case Fixpoint(name, ty, recursiveBody) => {
       // We don't check `ty <:< expectedType` here as we only care about the real type of the body
       //  and the marked type `ty` is just a hint for typing of the body.
-      env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv =>
+      env.withValueVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv =>
         recursiveBody.check(ty)(using newEnv)
       }
     }
@@ -454,11 +456,11 @@ enum Term {
    * @param env the environment to use for variable lookups
    * @return the evaluated term
    */
-  def eval(using env: Environment = Environment.empty)(
+  def eval(using env: Env = Environment.empty[Type, Term])(
     using mode: EvalMode = EvalMode.Normalize
   ): Term = this match {
     
-    case Var(name) => env.termVars.get(name) match {
+    case Var(name) => env.values.get(name) match {
       case Some(Typed(Var(newName), _)) if newName == name => this
       case Some(Var(newName)) if newName == name => this
       case Some(term) => term.eval
@@ -535,19 +537,19 @@ enum Term {
         
         case (Fixpoint(name, _, body), argValue, EvalMode.Full) if argValue.isValue => {
           // Unfold the fixpoint once when it is applied to a value argument.
-          env.withTermVar(name, funcEval) { implicit newEnv =>
+          env.withValueVar(name, funcEval) { implicit newEnv =>
             Term.Apply(body, argValue).eval(using newEnv)
           }
         }
           
         case (Lambda(param, paramType, body), argValue, _) if argValue.isValue => {
-          env.withTermVar(param, Typed(argValue.filter(paramType), paramType)) { 
+          env.withValueVar(param, Typed(argValue.filter(paramType), paramType)) {
             implicit newEnv => body.eval(using newEnv) 
           }
         }
         
         case (Lambda(param, paramType, body), argValue, EvalMode.Full) => {
-          env.withTermVar(param,  Typed(argValue.filter(paramType), paramType)) { 
+          env.withValueVar(param,  Typed(argValue.filter(paramType), paramType)) {
             implicit newEnv => body.eval(using newEnv) 
           }
         }
@@ -599,7 +601,7 @@ enum Term {
       val coeEval: Term = coe.eval
       (coeEval, argEval, mode) match {
         case (Coercion(param, _, body), argValue, _) =>
-          env.withTermVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
+          env.withValueVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
         case _ => Term.CoeApply(coeEval, argEval)
       }
     }
@@ -617,14 +619,14 @@ enum Term {
     
     case Lambda(param, paramType, body) => {
       val newParamType = paramType.normalize
-      env.withTermVar(param, Term.Typed(Term.Var(param), newParamType)) { 
+      env.withValueVar(param, Term.Typed(Term.Var(param), newParamType)) {
         implicit newEnv => Term.Lambda(param, newParamType, body.eval(using newEnv))
       }
     }
     
     case Coercion(param, paramType, body) => {
       val newParamType = paramType.normalize
-      env.withTermVar(param, Term.Typed(Term.Var(param), newParamType)) { 
+      env.withValueVar(param, Term.Typed(Term.Var(param), newParamType)) {
         implicit newEnv => Term.Coercion(param, newParamType, body.eval(using newEnv))
       }
     }
@@ -641,7 +643,7 @@ enum Term {
         //  then it is not really a recursive definition.
         // We can just evaluate the body directly.
         recursiveBody.eval
-      } else env.withTermVar(name, Term.Typed(Term.Var(name), ty)) {
+      } else env.withValueVar(name, Term.Typed(Term.Var(name), ty)) {
         implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
       }
     }
@@ -681,7 +683,7 @@ enum Term {
             // Otherwise, we unfold the fixpoint once
             //  (i.e., replace the fixpoint variable with the fixpoint itself)
             //  and then return the field value.
-            case Some(value) => env.withTermVar(name, recordEval) { implicit newEnv => 
+            case Some(value) => env.withValueVar(name, recordEval) { implicit newEnv =>
               value.eval(using newEnv)(using if mode == EvalMode.Unfold then EvalMode.Normalize else mode)
             }
             case None => NoSuchField.raise {
@@ -738,7 +740,7 @@ enum Term {
         case (Coercion(paramL, paramTypeL, bodyL), Coercion(paramR, paramTypeR, bodyR)) => {
           val param = if paramL == paramR then paramL else env.freshVarName(bodyL, bodyR)
           val paramType = paramTypeL merge paramTypeR
-          env.withTermVar(param, Term.Typed(Term.Var(param), paramType)) { implicit newEnv =>
+          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) { implicit newEnv =>
             val body = Term.Merge(bodyL, bodyR).eval(using newEnv)
             Term.Coercion(param, paramType, body)
           }
@@ -834,8 +836,8 @@ enum Term {
     }
   }
   
-  def new_(env: Environment, traitType: Type): (Term, Type) = {
-    given Environment = env
+  def new_(env: Env, traitType: Type): (Term, Type) = {
+    given Env = env
     traitType.normalize match {
       case Type.Trait(domain, codomain) => {
         if codomain <:< domain then {
@@ -848,7 +850,7 @@ enum Term {
     }
   }
   
-  def new_(using env: Environment): Term = {
+  def new_(using env: Env): Term = {
     val traitType = this.infer
     this.new_(env, traitType)._1
   }
@@ -869,7 +871,7 @@ enum Term {
   
   def isValue: Boolean = this.isValue(Set.empty)
 
-  def filter(expectedType: Type)(using env: Environment): Term = this match {
+  def filter(expectedType: Type)(using env: Env): Term = this match {
 
     // For records, only keep the fields that are present in the expected type,
     // TODO: the current implementation drops fields that are not in the expected type

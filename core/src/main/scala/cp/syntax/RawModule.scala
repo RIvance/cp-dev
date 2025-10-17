@@ -1,6 +1,6 @@
 package cp.syntax
 
-import cp.core.{Environment, Module}
+import cp.core.{Environment, Module, Term, Type}
 import cp.util.Graph
 
 case class RawModule(
@@ -8,7 +8,9 @@ case class RawModule(
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
 ) {
-  def synthesize(using env: Environment = Environment.empty): Module = {
+  private type Env = Environment[Type, Term]
+  
+  def synthesize(using env: Env = Environment.empty[Type, Term]): Module = {
     
     // We should synthesize types first, so that terms can refer to them.
     val sortedTypes = sortByDependency(types, (ty: ExprType, name: String) => ty.contains(name)) match {
@@ -28,12 +30,12 @@ case class RawModule(
     
     val synthesizedTerms = sortedTerms.foldLeft(synthesizedTypes) { case (envAcc, (name, exprTerm)) =>
       val (term, _) = exprTerm.synthesize(using envAcc)(using Set.empty)
-      envAcc.addTermVar(name, term)
+      envAcc.addValueVar(name, term)
     }
     
     Module(
-      terms = synthesizedTerms.termVars,
-      types = synthesizedTypes.typeVars,
+      terms = synthesizedTerms.values,
+      types = synthesizedTypes.types,
       submodules = submodules.map { case (name, rawMod) => 
         name -> rawMod.synthesize(using synthesizedTerms)
       }

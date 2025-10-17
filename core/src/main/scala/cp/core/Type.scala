@@ -2,11 +2,14 @@ package cp.core
 
 import cp.error.CoreErrorKind.*
 import cp.core.LiteralType.*
+import cp.util.RecNamed
 
 import scala.annotation.targetName
 
-enum Type {
-  
+enum Type extends RecNamed {
+
+  private type TypeEnv = TypeEnvironment[Type]
+
   case Var(name: String)
   
   case Primitive(ty: LiteralType)
@@ -105,13 +108,13 @@ enum Type {
     }
   }
   
-  infix def == (that: Type)(using env: Environment): Boolean = {
+  infix def == (that: Type)(using env: TypeEnv): Boolean = {
     val normThis = this.normalize
     val normThat = that.normalize
     (normThis unify normThat) && (normThat unify normThis)
   }
 
-  infix def unify(that: Type)(using env: Environment): Boolean = {
+  infix def unify(that: Type)(using env: TypeEnv): Boolean = {
     
     val normThis = this.normalize
     val normThat = that.normalize
@@ -120,7 +123,7 @@ enum Type {
 
       case (Var(name1), Var(name2)) => {
         name1 == name2 || {
-          env.typeVars.get(name1).exists(_.unify(normThat)) || env.typeVars.get(name2).exists(normThis.unify)
+          env.types.get(name1).exists(_.unify(normThat)) || env.types.get(name2).exists(normThis.unify)
         }
       }
       
@@ -134,7 +137,7 @@ enum Type {
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
         env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
-          given Environment = newEnv
+          given TypeEnv = newEnv
           codomain1.subst(param1, freshVar).unify(codomain2.subst(param2, freshVar)) && {
             constraints1.size == constraints2.size && constraints1.forall { c1 =>
               constraints2.exists { c2 => c1.map(_.subst(param1, freshVar)) unify c2.map(_.subst(param2, freshVar)) }
@@ -171,7 +174,7 @@ enum Type {
 
       case (Fixpoint(name1, body1), Fixpoint(name2, body2)) => {
         env.withFreshTypeVar(body1, body2) { (freshVar, newEnv) =>
-          given Environment = newEnv
+          given TypeEnv = newEnv
           body1.subst(name1, freshVar).unify(body2.subst(name2, freshVar))
         }
       }
@@ -199,7 +202,7 @@ enum Type {
   }
 
   @targetName("subtype")
-  infix def <:< (that: Type)(using env: Environment): Boolean = {
+  infix def <:< (that: Type)(using env: TypeEnv): Boolean = {
 
     if this == that then return true
 
@@ -214,11 +217,11 @@ enum Type {
       case (Primitive(BottomType), _) => true
 
       case (Var(name), _) => {
-        env.typeVars.get(name).exists(_.unify(normThat)) || normThis.unify(normThat)
+        env.types.get(name).exists(_.unify(normThat)) || normThis.unify(normThat)
       }
       
       case (_, Var(name)) => {
-        env.typeVars.get(name).exists(normThis.unify) || normThis.unify(normThat)
+        env.types.get(name).exists(normThis.unify) || normThis.unify(normThat)
       }
 
       case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
@@ -233,7 +236,7 @@ enum Type {
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
         val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
         env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
-          given Environment = newEnv
+          given TypeEnv = newEnv
           codomain1.subst(param1, freshVar) <:< codomain2.subst(param2, freshVar) && {
             // Since parameter are contravariant, the constraints on `this` should be
             //  weaker (i.e., include more elements, or `:>`) than those on `that`
@@ -297,9 +300,9 @@ enum Type {
     }
   }
 
-  def normalize(using env: Environment): Type = this match {
+  def normalize(using env: TypeEnv): Type = this match {
     
-    case Var(name) => env.typeVars.get(name) match {
+    case Var(name) => env.types.get(name) match {
       case Some(Var(newName)) if name == newName => this
       case Some(resolvedType) => resolvedType.normalize
       case None => this
@@ -313,7 +316,7 @@ enum Type {
 
     case Forall(param, codomain, constraints) => {
       env.withTypeVar(param, Type.Var(param)) { implicit newEnv =>
-        given Environment = newEnv
+        given TypeEnv = newEnv
         Type.Forall(
           paramName = param,
           codomain.normalize,
@@ -327,7 +330,7 @@ enum Type {
         sortInName -> Type.Var(sortInName),
         sortOutName -> Type.Var(sortOutName),
       ) { implicit newEnv =>
-        given Environment = newEnv
+        given TypeEnv = newEnv
         Signature(sortInName, sortOutName, body.normalize)
       }
     }
@@ -396,7 +399,7 @@ enum Type {
     }
 
     case Fixpoint(name, body) => {
-      given Environment = env.addTypeVar(name, Type.Var(name))
+      given TypeEnv = env.addTypeVar(name, Type.Var(name))
       Fixpoint(name, body.normalize)
     }
 
@@ -431,16 +434,16 @@ enum Type {
   }
 
   // TODO: this implementation need to be revisited
-  def disjointWith(that: Type)(using env: Environment): Boolean = (this, that) match {
+  def disjointWith(that: Type)(using env: TypeEnv): Boolean = (this, that) match {
 
     case (left, right) if left == right => false
 
     case (Var(name), other) => {
-      env.typeVars.get(name).forall(_.disjointWith(other))
+      env.types.get(name).forall(_.disjointWith(other))
     }
 
     case (other, Var(name)) => {
-      env.typeVars.get(name).forall(other.disjointWith)
+      env.types.get(name).forall(other.disjointWith)
     }
 
     // TODO: Figure out why this case returns true in the previous implementation
@@ -482,8 +485,9 @@ enum Type {
         // No disjointness constraints, we need to check the bodies
         val disjoint = Primitive(TopType) // A type that is guaranteed to be disjoint with any other type
         val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
-        env.withFreshTypeBinding(disjoint)(typesToCheck*) { (freshVar, newEnv) =>
-          given Environment = newEnv
+        env.withFreshTypeBinding(disjoint)(typesToCheck*) { (freshVarName, newEnv) =>
+          given TypeEnv = newEnv
+          val freshVar = Type.Var(freshVarName)
           codomain1.subst(param1, freshVar) disjointWith codomain2.subst(param2, freshVar)
         }
       }
@@ -496,7 +500,7 @@ enum Type {
     case (left, right) => left != right
   }
 
-  infix def diff(that: Type)(using env: Environment): Type = (this, that) match {
+  infix def diff(that: Type)(using env: TypeEnv): Type = (this, that) match {
 
     case (left, right) if left <:< right => Type.bottom
     case (left, right) if right.isTopLike => Type.bottom
@@ -553,7 +557,7 @@ enum Type {
     case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
       val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
       env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
-        given Environment = newEnv
+        given TypeEnv = newEnv
         val codomainDiff = codomain1.subst(param1, freshVar).diff(codomain2.subst(param2, freshVar)).normalize
         if constraints2.forall(_.verify(codomainDiff)) then this
         else Forall(
@@ -582,7 +586,7 @@ enum Type {
     case (left, right) => left.normalize
   }
 
-  infix def merge(that: Type)(using env: Environment): Type = (this, that) match {
+  infix def merge(that: Type)(using env: TypeEnv): Type = (this, that) match {
     case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) 
       if domain1 unify domain2 => 
       Arrow(domain1, codomain1.merge(codomain2).normalize)
@@ -594,7 +598,7 @@ enum Type {
     case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
       val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
       env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
-        given Environment = newEnv
+        given TypeEnv = newEnv
         Forall(
           freshVar.name,
           codomain1.subst(param1, freshVar).merge(codomain2.subst(param2, freshVar)).normalize,
@@ -670,7 +674,7 @@ enum Type {
     case _ => (Nil, this)
   }
   
-  def testApplicationReturn(argType: Type)(using env: Environment): Option[Type] = this match {
+  def testApplicationReturn(argType: Type)(using env: TypeEnv): Option[Type] = this match {
     
     case Arrow(domain, codomain) => {
       if argType <:< domain then Some(codomain) else None

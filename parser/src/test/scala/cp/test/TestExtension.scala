@@ -12,7 +12,9 @@ import org.scalatest.matchers.should
 
 trait TestExtension extends should.Matchers {
   
-  extension (term: Term) def fullEval(using env: Environment): Term = {
+  protected type Env = Environment[Type, Term]
+  
+  extension (term: Term) def fullEval(using env: Env): Term = {
     term.eval(using env)(using EvalMode.Full)
   }
 
@@ -32,14 +34,14 @@ trait TestExtension extends should.Matchers {
   }
 
   protected def synthExpr(code: String)(
-    using env: Environment = Prelude.environment
+    using env: Env = Prelude.environment
   ): (Term, Type) = catchError(code.strip) { _ => 
     val (term, ty) = parseExprTerm(code).synthesize(using env)
     (term.eval, ty.normalize)
   }
   
   protected def synthModule(code: String)(
-    using env: Environment = Prelude.environment
+    using env: Env = Prelude.environment
   ): Module = catchError(code.strip) { listener =>
     val stripedCode = code.strip()
     val lexer = CpLexer(CharStreams.fromString(stripedCode))
@@ -100,18 +102,18 @@ trait TestExtension extends should.Matchers {
   
   extension (expr: String) {
     
-    protected infix def >>> (expected: (Term, Type))(using env: Environment): Any = {
+    protected infix def >>> (expected: (Term, Type))(using env: Env): Any = {
       val (term, ty) = synthExpr(expr)
       term.fullEval should be (expected._1)
       ty.normalize should be (expected._2)
     }
     
-    protected infix def >>> (expected: Term)(using env: Environment): Any = {
+    protected infix def >>> (expected: Term)(using env: Env): Any = {
       val (term, _) = synthExpr(expr)
       term.fullEval should be (expected)
     }
     
-    protected infix def >>: (expected: Type)(using env: Environment): Any = {
+    protected infix def >>: (expected: Type)(using env: Env): Any = {
       val (term, ty) = synthExpr(expr)
       if !term.fullEval.check(expected) then {
         fail(s"Term ($term : ${ty.normalize}) does not check against expected type $expected")
@@ -119,7 +121,7 @@ trait TestExtension extends should.Matchers {
     }
   }
   
-  protected def module[T](code: String)(f: Environment => T): Unit = {
+  protected def module[T](code: String)(f: Env => T): Unit = {
     f(synthModule(code)(using Prelude.environment).toEnv)
   }
 }

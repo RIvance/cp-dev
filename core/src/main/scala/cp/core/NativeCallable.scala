@@ -7,10 +7,13 @@ trait NativeCallable {
   def returnType: Type
   def paramTypes: Seq[Type]
   def arity: Int = paramTypes.length
-  def call(args: Seq[Term])(using env: Environment): Term
+  def call(args: Seq[Term])(using env: NativeCallable.Env): Term
 }
 
 object NativeCallable {
+
+  type Env = Environment[Type, Term]
+
   enum Kind {
     case Default
     case Operator(symbol: String)
@@ -23,7 +26,7 @@ private sealed abstract class NativeCallableBase (
   override val paramTypes: Seq[Type],
   val implementation: Seq[Term] => Term,
 ) extends NativeCallable {
-  override def call(args: Seq[Term])(using env: Environment): Term = {
+  override def call(args: Seq[Term])(using env: NativeCallable.Env): Term = {
     if args.length != paramTypes.length then {
       throw new IllegalArgumentException(s"Expected ${paramTypes.length} arguments, got ${args.length}")
     }

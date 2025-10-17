@@ -1,15 +1,9 @@
 package cp.intermediate.ssa.pure
 
-import cp.intermediate.ssa.{BlockId, FuncId, VarId}
-import BlockId.*
-import VarId.*
-import FuncId.*
 import cp.core.Literal
-import cp.intermediate.calculus.RcTerm as Term
 import cp.intermediate.TypeValue as Type
-import cp.util.LateInit
-
-import scala.util.chaining.scalaUtilChainingOps
+import cp.intermediate.ssa.BlockId.*
+import cp.intermediate.ssa.{BlockId, FuncId, VarId}
 
 trait SSAConstruct
 

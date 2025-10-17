@@ -7,6 +7,8 @@ import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, SourceSpan}
 
 enum ExprTerm extends OptionalSpanned[ExprTerm] {
+  
+  private type Env = Environment[Type, Term]
 
   case Primitive(value: Literal)
 
@@ -80,11 +82,11 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case _ => ExprTerm.Span(this, span)
   }
 
-  def synthesize(using env: Environment)(
+  def synthesize(using env: Env)(
     using constraints: Set[Constraint[ExprType]] = Set.empty
   ): (Term, Type) = synthesize(using None)(using env)
 
-  private def synthesize(using expectedType: Option[Type])(using env: Environment)(
+  private def synthesize(using expectedType: Option[Type])(using env: Env)(
     using constraints: Set[Constraint[ExprType]]
   ): (Term, Type) = this match {
     case ExprTerm.Primitive(value) => {
@@ -100,7 +102,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
 
     case ExprTerm.Var(name) => {
-      env.termVars.get(name) match {
+      env.values.get(name) match {
         case Some(term) => (term, term.infer)
         case None => UnresolvedReference.raise(s"Undefined symbol: $name")
       }
@@ -161,7 +163,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           }
         }
       }
-      env.withTermVar(paramName, Term.Typed(Term.Var(paramName), paramType)) { env =>
+      env.withValueVar(paramName, Term.Typed(Term.Var(paramName), paramType)) { env =>
         val (bodyTerm, bodyType) = body.synthesize(using env)
         val lambdaTerm = Term.Lambda(paramName, paramType, bodyTerm)
         val lambdaType = Type.Arrow(paramType, bodyType)
@@ -184,7 +186,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       
     case ExprTerm.Fixpoint(name, tyExpr, recursiveBody) => {
       val ty = tyExpr.synthesize
-      env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { implicit env =>
+      env.withValueVar(name, Term.Typed(Term.Var(name), ty)) { implicit env =>
         val (bodyTerm, bodyType) = recursiveBody.synthesize(using env)
         if !(bodyType <:< ty) then TypeNotMatch.raise {
           s"Fixpoint body type does not match annotated type: $bodyType vs $ty"
@@ -225,7 +227,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         case None => valueType
       }
       // Convert let-in to application of lambda
-      env.withTermVar(name, Term.Typed(Term.Var(name), ty)) { env =>
+      env.withValueVar(name, Term.Typed(Term.Var(name), ty)) { env =>
         val (bodyTerm, bodyType) = body.synthesize(using env)
         val letTerm = Term.Apply(Term.Lambda(name, ty, bodyTerm), valueTerm)
         if !letTerm.check(bodyType) then TypeNotMatch.raise {
@@ -401,7 +403,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           }.toMap
           
           // Now we can synthesize the constructor body
-          val consBody = env.withTermVars(constructorParamVars) { implicit newEnv =>
+          val consBody = env.withValueVars(constructorParamVars) { implicit newEnv =>
             val methods = methodPatterns.map { case RecordFieldMethod(_, methodName, body, _) =>
               // Synthesize each method pattern
               //  e.g., `eval = -e.eval;`
@@ -505,7 +507,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       
       val (term: Term, ty: Type) = record.synthesize
 
-      lazy val tryApplication: Option[(Term, Type)] = env.termVars.get(field) match {
+      lazy val tryApplication: Option[(Term, Type)] = env.values.get(field) match {
         case Some(fn) => fn.infer.testApplicationReturn(ty) match {
           case Some(returnType) => Some((Term.Apply(fn, term), returnType))
           case None => None
@@ -576,7 +578,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
               accBody.subst(fieldName, ExprTerm.Projection(freshVarTermExpr, fieldName))
             }
           }
-          val newEnv: Environment = env.addTermVar(freshVarName, Term.Typed(freshVarTerm, recordType))
+          val newEnv: Env = env.addValueVar(freshVarName, Term.Typed(freshVarTerm, recordType))
           substitutedBody.synthesize(using newEnv)
         }
         case _ => TypeNotMatch.raise(s"Opening a non-record type: $recordType")
@@ -605,7 +607,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
               if !(selfType <:< inheritDomain) then TypeNotMatch.raise {
                 s"Trait self type $selfType is not a subtype of inherited trait domain $inheritDomain"
               }
-              env.withTermVars( // Environment with self and super bindings
+              env.withValueVars( // Term.Env with self and super bindings
                 selfName -> Term.Typed(Term.Var(selfName), selfType),
                 "super" -> Term.Typed(Term.Var("super"), inheritCodomain),
               ) { implicit env =>
@@ -700,7 +702,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         }
         // Match inheritExprOpt - There is no inherited trait
         case None => {
-          env.withTermVar(selfName, Term.Typed(Term.Var(selfName), selfType)) { implicit env =>
+          env.withValueVar(selfName, Term.Typed(Term.Var(selfName), selfType)) { implicit env =>
             val (bodyTerm: Term, bodyType: Type) = body.synthesize(using implTypeOpt)
             val traitCodomain = bodyType.normalize
             val traitTerm = Term.Coercion(
