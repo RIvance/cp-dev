@@ -9,24 +9,6 @@ import cp.intermediate.ssa.{BlockId, FuncId, VarId}
 import scala.annotation.tailrec
 import scala.util.chaining.scalaUtilChainingOps
 
-//case class CompileEnv(
-//  values: Map[Int, Value] = Map.empty,
-//  types: Map[Int, Type] = Map.empty,
-//) {
-//  def value(id: Int): Value = values(id)
-//  def ty(id: Int): Type = types(id)
-//
-//  def getValue(id: Int): Option[Value] = values.get(id)
-//  def getType(id: Int): Option[Type] = types.get(id)
-//
-//  def get(id: Int): Option[(Value, Type)] = for {
-//    v <- getValue(id)
-//    t <- getType(id)
-//  } yield (v, t)
-//
-//  def apply(id: Int): (Value, Type) = (value(id), ty(id))
-//}
-
 type CompileEnv = Environment[Int, Type, Value]
 
 trait SSABuilder[C <: SSAConstruct] {
@@ -131,8 +113,8 @@ private class FunctionBuilder(
 
     case Term.NativeCall(fn, args) => {
       val funcIdent = if fn.isPure
-        then s"native#pure@${fn.name}"
-        else s"native#impure@${fn.name}"
+        then s"@pure#${fn.name}"
+        else s"@impure#${fn.name}"
       val (argValues, finalBlock) = args.foldLeft((List.empty[Value], block)) {
         case ((accValues, currBlock), argTerm) => {
           val (argValue, argFinalBlock) = this.compileTerm(argTerm, currBlock)
@@ -259,7 +241,7 @@ private class ProgramBuilder extends SSABuilder[Program] {
       }
       (debruijnIndex -> value, debruijnIndex -> ty)
     }.unzip
-    Environment(values.toMap, types.toMap)
+    Environment(types.toMap, values.toMap)
   }
 
   def createFunction(

@@ -16,7 +16,7 @@ case class NativePrototypePure[T](
   override def isPure: Boolean = true
 }
 
-case class NativePrototypeEffective[T](
+case class NativePrototypeImpure[T](
   override val name: String,
   override val argTypes: List[T],
   override val returnType: T
