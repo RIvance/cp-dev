@@ -4,10 +4,11 @@ import cp.core.Literal
 import cp.intermediate.TypeValue as Type
 import cp.intermediate.ssa.BlockId.*
 import cp.intermediate.ssa.{BlockId, FuncId, VarId}
+import cp.util.IdentifiedByIndex
 
 trait SSAConstruct
 
-enum Value extends SSAConstruct {
+enum Value extends SSAConstruct with IdentifiedByIndex {
   case Var(id: VarId)
   case Const(value: Literal)
   case Closure(func: String, env: List[Value] = Nil)

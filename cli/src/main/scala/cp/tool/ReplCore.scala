@@ -17,7 +17,7 @@ private class ReplCore {
   }
 
   private val visitor: Visitor = Visitor()
-  implicit var environment: Environment[Type, Term] = Prelude.environment
+  implicit var environment: Environment[String, Type, Term] = Prelude.environment
 
   def iterate(source: String): Unit = {
 

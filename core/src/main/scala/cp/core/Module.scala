@@ -12,7 +12,7 @@ class Module(
     ExportedModule(this, exportedTypes.keySet ++ exportedTerms.keySet)
   }
   
-  def toEnv: Environment[Type, Term] = Environment[Type, Term](types, terms)
+  def toEnv = Environment[String, Type, Term](types, terms)
 }
 
 case class ExportedModule(

@@ -1,132 +1,151 @@
 package cp.core
 
-import cp.util.RecNamed
+import cp.util.{IdentifiedByString, Identified}
 
-trait TypeEnvironment[T <: RecNamed] { self =>
+trait TypeEnvironment[Id, T <: Identified[Id]] { self =>
   
-  type Self <: TypeEnvironment[T]
+  type Self <: TypeEnvironment[Id, T]
+
+  def types: Map[Id, T]
+
+  def ty(id: Id): T = types(id)
+
+  def getType(id: Id): Option[T] = types.get(id)
   
-  def types: Map[String, T]
+  def addTypeVar[T1 <: T](id: Id, ty: T1): Self
   
-  def addTypeVar[T1 <: T](name: String, ty: T1): Self
+  def withTypeVar[T1 <: T, R](id: Id, ty: T1)(f: Self => R): R = f(addTypeVar(id, ty))
   
-  def withTypeVar[T1 <: T, R](name: String, ty: T1)(f: Self => R): R = f(addTypeVar(name, ty))
-  
-  def withTypeVars[T1 <: T, R](vars: Map[String, T1])(f: Self => R): R = {
-    f(vars.foldLeft(this.asInstanceOf[Self]) { case (env, (name, ty)) => env.addTypeVar(name, ty).asInstanceOf[Self] })
+  def withTypeVars[T1 <: T, R](vars: Map[Id, T1])(f: Self => R): R = {
+    f(vars.foldLeft(this.asInstanceOf[Self]) { case (env, (id, ty)) => env.addTypeVar(id, ty).asInstanceOf[Self] })
   }
   
-  def withTypeVars[T1 <: T, R](vars: (String, T1)*)(f: Self => R): R = {
+  def withTypeVars[T1 <: T, R](vars: (Id, T1)*)(f: Self => R): R = {
     withTypeVars(vars.toMap)(f)
   }
-  
+}
+
+extension [T <: IdentifiedByString](env: TypeEnvironment[String, T]) {
   def freshTypeName[T1 <: T](bodies: T1*): String = {
     Iterator.from(0).map(n => s"$$Type$$$n").find {
-      name => !types.contains(name) && !bodies.exists(_.contains(name))
+      id => !env.types.contains(id) && !bodies.exists(_.contains(id))
     }.get
   }
-  
+
   def withFreshTypeName[R](bodies: T*)(f: String => R): R = {
-    val name = freshTypeName(bodies *)
-    f(name)
+    val id = env.freshTypeName(bodies *)
+    f(id)
   }
-  
-  def withFreshTypeBinding[R](ty: T)(bodies: T*)(f: (String, TypeEnvironment[T]) => R): R = {
-    val name = freshTypeName(bodies *)
-    f(name, addTypeVar(name, ty))
-  }
-}
 
-case class TypeOnlyEnvironment[T <: RecNamed](
-  override val types: Map[String, T],
-) extends TypeEnvironment[T] {
-
-  type Self = TypeOnlyEnvironment[T]
-  
-  override def addTypeVar[T1 <: T](name: String, ty: T1): TypeOnlyEnvironment[T] = {
-    copy(types = types + (name -> ty))
+  def withFreshTypeBinding[R](ty: T)(bodies: T*)(f: (String, TypeEnvironment[String, T]) => R): R = {
+    val id = freshTypeName(bodies *)
+    f(id, env.addTypeVar(id, ty))
   }
 }
 
-extension (env: TypeEnvironment[Type]) {
-  def withFreshTypeVar[R](bodies: Type*)(f: (Type.Var, TypeEnvironment[Type]) => R): R = {
-    val name = env.freshTypeName(bodies *)
-    val freshVar: Type.Var = Type.Var(name)
-    f(freshVar, env.addTypeVar(name, Type.Var(name)))
+case class TypeOnlyEnvironment[Id, T <: Identified[Id]](
+  override val types: Map[Id, T],
+) extends TypeEnvironment[Id, T] {
+
+  type Self = TypeOnlyEnvironment[Id, T]
+  
+  override def addTypeVar[T1 <: T](id: Id, ty: T1): TypeOnlyEnvironment[Id, T] = {
+    copy(types = types + (id -> ty))
   }
 }
 
-case class Environment[T <: RecNamed, V <: RecNamed](
-  types: Map[String, T] = Map.empty,
-  values: Map[String, V] = Map.empty,
-) extends TypeEnvironment[T] {
+extension (env: TypeEnvironment[String, Type]) {
+  def withFreshTypeVar[R](bodies: Type*)(f: (Type.Var, TypeEnvironment[String, Type]) => R): R = {
+    val id = env.freshTypeName(bodies *)
+    val freshVar: Type.Var = Type.Var(id)
+    f(freshVar, env.addTypeVar(id, Type.Var(id)))
+  }
+}
 
-  type Self = Environment[T, V]
+case class Environment[Id, T <: Identified[Id], V <: Identified[Id]](
+  types: Map[Id, T] = Map.empty,
+  values: Map[Id, V] = Map.empty,
+) extends TypeEnvironment[Id, T] {
+
+  type Self = Environment[Id, T, V]
+
+  def value(id: Id): V = values(id)
+
+  def getValue(id: Id): Option[V] = values.get(id)
+
+  def get(id: Id): Option[(V, T)] = for {
+    value <- getValue(id)
+    ty <- getType(id)
+  } yield (value, ty)
+
+  def apply(id: Id): (V, T) = (value(id), ty(id))
   
-  def typeEnv: TypeEnvironment[T] = TypeOnlyEnvironment(types)
+  def typeEnv: TypeEnvironment[Id, T] = TypeOnlyEnvironment(types)
   
-  override def addTypeVar[T1 <: T](name: String, ty: T1): Environment[T, V] = {
-    copy(types = types + (name -> ty))
+  override def addTypeVar[T1 <: T](id: Id, ty: T1): Environment[Id, T, V] = {
+    copy(types = types + (id -> ty))
   }
 
-  def addValueVar[V1 <: V](name: String, term: V1): Environment[T, V] = {
-    copy(values = values + (name -> term))
+  def addValueVar[V1 <: V](id: Id, term: V1): Environment[Id, T, V] = {
+    copy(values = values + (id -> term))
   }
 
-  override def withTypeVar[T1 <: T, R](name: String, ty: T1)(f: Environment[T, V] => R): R = f(addTypeVar(name, ty))
+  override def withTypeVar[T1 <: T, R](id: Id, ty: T1)(f: Environment[Id, T, V] => R): R = f(addTypeVar(id, ty))
   
-  override def withTypeVars[T1 <: T, R](vars: Map[String, T1])(f: Environment[T, V] => R): R = {
+  override def withTypeVars[T1 <: T, R](vars: Map[Id, T1])(f: Environment[Id, T, V] => R): R = {
     f(copy(types = types ++ vars))
   }
 
-  override def withTypeVars[T1 <: T, R](vars: (String, T1)*)(f: Environment[T, V] => R): R = {
+  override def withTypeVars[T1 <: T, R](vars: (Id, T1)*)(f: Environment[Id, T, V] => R): R = {
     f(copy(types = types ++ vars.toMap))
   }
 
-  def withValueVar[V1 <: V, R](name: String, term: V1)(f: Environment[T, V] => R): R = {
-    f(addValueVar(name, term))
+  def withValueVar[V1 <: V, R](id: Id, term: V1)(f: Environment[Id, T, V] => R): R = {
+    f(addValueVar(id, term))
   }
   
-  def withValueVars[V1 <: V, R](vars: Map[String, V1])(f: Environment[T, V] => R): R = {
+  def withValueVars[V1 <: V, R](vars: Map[Id, V1])(f: Environment[Id, T, V] => R): R = {
     f(copy(values = values ++ vars))
   }
 
-  def withValueVars[V1 <: V, R](vars: (String, V1)*)(f: Environment[T, V] => R): R = {
+  def withValueVars[V1 <: V, R](vars: (Id, V1)*)(f: Environment[Id, T, V] => R): R = {
     f(copy(values = values ++ vars.toMap))
   }
+}
 
+extension [T <: IdentifiedByString, V <: IdentifiedByString](env: Environment[String, T, V]) {
   def freshVarName[V1 <: V](bodies: V1*): String = {
     Iterator.from(0).map(n => s"$$value$$$n").find {
-      name => !values.contains(name) && !bodies.exists(_.contains(name))
+      id => !env.values.contains(id) && !bodies.exists(_.contains(id))
     }.get
   }
 }
 
 object Environment {
 
-  def empty[T <: RecNamed, V <: RecNamed]: Environment[T, V] = Environment(
-    types = Map.empty[String, T],
-    values = Map.empty[String, V],
+  def empty[Id, T <: Identified[Id], V <: Identified[Id]]: Environment[Id, T, V] = Environment(
+    types = Map.empty[Id, T],
+    values = Map.empty[Id, V],
   )
 
-  def builder[T <: RecNamed, V <: RecNamed]: Builder[T, V] = Builder()
+  def builder[Id, T <: Identified[Id], V <: Identified[Id]]: Builder[Id, T, V] = Builder()
 
-  class Builder[T <: RecNamed, V <: RecNamed] {
-    private var env : Environment[T, V] = Environment.empty
+  class Builder[Id, T <: Identified[Id], V <: Identified[Id]] {
+    private var env : Environment[Id, T, V] = Environment.empty
 
-    def typeVar(name: String, ty: T): Builder[T, V] = {
-      env = env.addTypeVar(name, ty)
+    def typeVar(id: Id, ty: T): Builder[Id, T, V] = {
+      env = env.addTypeVar(id, ty)
       this
     }
 
-    def valueVar(name: String, term: V): Builder[T, V] = {
-      env = env.addValueVar(name, term)
+    def valueVar(id: Id, term: V): Builder[Id, T, V] = {
+      env = env.addValueVar(id, term)
       this
     }
 
-    def build(): Environment[T, V] = env
+    def build(): Environment[Id, T, V] = env
 
-    def buildWith(f: Builder[T, V] => Unit): Environment[T, V] = {
+    def buildWith(f: Builder[Id, T, V] => Unit): Environment[Id, T, V] = {
       f(this)
       this.build()
     }

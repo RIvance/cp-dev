@@ -3,11 +3,11 @@ package cp.syntax
 import cp.core.{Constraint, LiteralType, Type, TypeEnvironment, synthesize, verify}
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
-import cp.util.{OptionalSpanned, RecNamed, SourceSpan}
+import cp.util.{OptionalSpanned, IdentifiedByString, SourceSpan}
 
-private type Env = TypeEnvironment[Type]
+private type TypeEnv = TypeEnvironment[String, Type]
 
-enum ExprType extends OptionalSpanned[ExprType] with RecNamed {
+enum ExprType extends OptionalSpanned[ExprType] with IdentifiedByString {
 
   case Primitive(ty: LiteralType)
 
@@ -48,7 +48,7 @@ enum ExprType extends OptionalSpanned[ExprType] with RecNamed {
     case _ => ExprType.Span(this, span)
   }
 
-  def synthesize(using env: Env)(
+  def synthesize(using env: TypeEnv)(
     using constraints: Set[Constraint[ExprType]] = Set.empty
   )(using sortMap: Map[String, String] = Map.empty[String, String]): Type = {
     
@@ -161,7 +161,7 @@ enum ExprType extends OptionalSpanned[ExprType] with RecNamed {
     synthesizedType.normalize
   }
   
-  def contains(name: String): Boolean = this match {
+  override def contains(name: String): Boolean = this match {
     case Primitive(_) => false
     case Var(n) => n == name
     case Arrow(domain, codomain) => domain.contains(name) || codomain.contains(name)

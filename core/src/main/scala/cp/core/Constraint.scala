@@ -49,23 +49,23 @@ enum Constraint[T <: Type | ExprType] {
 }
 
 object Constraint {
-  type Env = TypeEnvironment[Type]
+  type TypeEnv = TypeEnvironment[String, Type]
 }
 
 extension (constraint: Constraint[ExprType]) {
-  def synthesize(using env: Constraint.Env): Constraint[Type] = {
+  def synthesize(using env: Constraint.TypeEnv): Constraint[Type] = {
     constraint.map(_.synthesize(using env)(using Set.empty))
   }
 }
 
 extension (constraint: Constraint[Type]) {
-  def verify(ty: Type)(using env: Constraint.Env): Boolean = constraint match {
+  def verify(ty: Type)(using env: Constraint.TypeEnv): Boolean = constraint match {
     case Constraint.Disjoint(_, disjoint) => ty.disjointWith(disjoint)
     case Constraint.UpperBound(_, upperBound) => ty <:< upperBound
     case Constraint.LowerBound(_, lowerBound) => lowerBound <:< ty
   }
   
-  def unify(otherConstraint: Constraint[Type])(using env: Constraint.Env): Boolean = {
+  def unify(otherConstraint: Constraint[Type])(using env: Constraint.TypeEnv): Boolean = {
     (constraint, otherConstraint) match {
       case (
         Constraint.Disjoint(_, disjoint1),
@@ -83,7 +83,7 @@ extension (constraint: Constraint[Type]) {
     }
   }
   
-  infix def weakerThan(otherConstraint: Constraint[Type])(using env: Constraint.Env): Boolean = {
+  infix def weakerThan(otherConstraint: Constraint[Type])(using env: Constraint.TypeEnv): Boolean = {
     (constraint, otherConstraint) match {
       case (
         Constraint.Disjoint(_, disjoint1),
@@ -104,7 +104,7 @@ extension (constraint: Constraint[Type]) {
   // Judge whether type satisfying `constraint` guarantees to be disjoint with type satisfying `otherConstraint`
   // In other words, there is no type that satisfies both `constraint` and `otherConstraint`
   @tailrec
-  infix def disjointWith(otherConstraint: Constraint[Type])(using env: Constraint.Env): Boolean = {
+  infix def disjointWith(otherConstraint: Constraint[Type])(using env: Constraint.TypeEnv): Boolean = {
     // TODO: double check this logic
     (constraint, otherConstraint) match {
       case (
@@ -135,7 +135,7 @@ extension (constraint: Constraint[Type]) {
 }
 
 extension (constraints: Set[Constraint[Type]]) {
-  def compact(using env: Constraint.Env): Set[Constraint[Type]] = {
+  def compact(using env: Constraint.TypeEnv): Set[Constraint[Type]] = {
     var upperBound: Option[Type] = None
     var lowerBound: Option[Type] = None
     var disjoint: Option[Type] = None
@@ -181,9 +181,9 @@ extension (constraints: Set[Constraint[Type]]) {
   // TODO: We need to implement a more sophisticated algorithm to compute the intersection, union
   //  and difference of constraints (especially difference), instead of just taking the union of the sets.
   
-  def intersectWith(other: Set[Constraint[Type]])(using env: Constraint.Env): Set[Constraint[Type]] = ???
+  def intersectWith(other: Set[Constraint[Type]])(using env: Constraint.TypeEnv): Set[Constraint[Type]] = ???
   
-  def unionWith(other: Set[Constraint[Type]])(using env: Constraint.Env): Set[Constraint[Type]] = ???
+  def unionWith(other: Set[Constraint[Type]])(using env: Constraint.TypeEnv): Set[Constraint[Type]] = ???
   
-  def diffWith(other: Set[Constraint[Type]])(using env: Constraint.Env): Set[Constraint[Type]] = ???
+  def diffWith(other: Set[Constraint[Type]])(using env: Constraint.TypeEnv): Set[Constraint[Type]] = ???
 }

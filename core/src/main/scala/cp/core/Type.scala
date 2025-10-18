@@ -2,13 +2,13 @@ package cp.core
 
 import cp.error.CoreErrorKind.*
 import cp.core.LiteralType.*
-import cp.util.RecNamed
+import cp.util.IdentifiedByString
 
 import scala.annotation.targetName
 
-enum Type extends RecNamed {
+enum Type extends IdentifiedByString {
 
-  private type TypeEnv = TypeEnvironment[Type]
+  private type TypeEnv = TypeEnvironment[String, Type]
 
   case Var(name: String)
   
@@ -640,7 +640,7 @@ enum Type extends RecNamed {
     case _ => None
   }
   
-  def contains(name: String): Boolean = this match {
+  override def contains(name: String): Boolean = this match {
     case Var(n) => n == name
     case Primitive(_) => false
     case Arrow(domain, codomain) => domain.contains(name) || codomain.contains(name)

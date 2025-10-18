@@ -1,13 +1,13 @@
 package cp.core
 
 import cp.error.CoreErrorKind.*
-import cp.util.{Graph, RecNamed, Recoverable}
+import cp.util.{Graph, IdentifiedByString, Recoverable}
 
 import scala.util.{Failure, Success}
 
-enum Term extends RecNamed {
+enum Term extends IdentifiedByString {
 
-  type Env = Environment[Type, Term]
+  type Env = Environment[String, Type, Term]
   
   case Var(name: String)
 
@@ -456,7 +456,7 @@ enum Term extends RecNamed {
    * @param env the environment to use for variable lookups
    * @return the evaluated term
    */
-  def eval(using env: Env = Environment.empty[Type, Term])(
+  def eval(using env: Env = Environment.empty[String, Type, Term])(
     using mode: EvalMode = EvalMode.Normalize
   ): Term = this match {
     
@@ -936,7 +936,7 @@ enum Term extends RecNamed {
     case _ => this
   }
   
-  def contains(name: String): Boolean = this match {
+  override def contains(name: String): Boolean = this match {
     case Var(n) => n == name
     case Typed(term, _) => term.contains(name)
     case Primitive(_) => false

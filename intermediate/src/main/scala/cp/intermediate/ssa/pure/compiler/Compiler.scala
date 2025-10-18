@@ -1,5 +1,6 @@
 package cp.intermediate.ssa.pure.compiler
 
+import cp.core.Environment
 import cp.intermediate.TypeValue as Type
 import cp.intermediate.calculus.RcTerm as Term
 import cp.intermediate.ssa.pure.{Block, Function, Instruction, Program, SSAConstruct, Value}
@@ -8,23 +9,25 @@ import cp.intermediate.ssa.{BlockId, FuncId, VarId}
 import scala.annotation.tailrec
 import scala.util.chaining.scalaUtilChainingOps
 
-case class CompileEnv(
-  values: Map[Int, Value] = Map.empty,
-  types: Map[Int, Type] = Map.empty,
-) {
-  def value(id: Int): Value = values(id)
-  def ty(id: Int): Type = types(id)
+//case class CompileEnv(
+//  values: Map[Int, Value] = Map.empty,
+//  types: Map[Int, Type] = Map.empty,
+//) {
+//  def value(id: Int): Value = values(id)
+//  def ty(id: Int): Type = types(id)
+//
+//  def getValue(id: Int): Option[Value] = values.get(id)
+//  def getType(id: Int): Option[Type] = types.get(id)
+//
+//  def get(id: Int): Option[(Value, Type)] = for {
+//    v <- getValue(id)
+//    t <- getType(id)
+//  } yield (v, t)
+//
+//  def apply(id: Int): (Value, Type) = (value(id), ty(id))
+//}
 
-  def getValue(id: Int): Option[Value] = values.get(id)
-  def getType(id: Int): Option[Type] = types.get(id)
-
-  def get(id: Int): Option[(Value, Type)] = for {
-    v <- getValue(id)
-    t <- getType(id)
-  } yield (v, t)
-
-  def apply(id: Int): (Value, Type) = (value(id), ty(id))
-}
+type CompileEnv = Environment[Int, Type, Value]
 
 trait SSABuilder[C <: SSAConstruct] {
   def build(): C
@@ -256,7 +259,7 @@ private class ProgramBuilder extends SSABuilder[Program] {
       }
       (debruijnIndex -> value, debruijnIndex -> ty)
     }.unzip
-    CompileEnv(values.toMap, types.toMap)
+    Environment(values.toMap, types.toMap)
   }
 
   def createFunction(

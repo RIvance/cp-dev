@@ -7,9 +7,9 @@ import cp.core.LiteralType.*
 object Prelude {
   import NativeImplementations.*
   
-  private type Env = Environment[Type, Term]
+  private type Env = Environment[String, Type, Term]
   
-  lazy val environment: Env = Environment.builder[Type, Term].buildWith { builder =>
+  lazy val environment: Env = Environment.builder[String, Type, Term].buildWith { builder =>
     builder.valueVar("+", overloaded(addInt, addFloat))
     builder.valueVar("-", overloaded(subInt, subFloat))
     builder.valueVar("*", overloaded(mulInt, mulFloat))

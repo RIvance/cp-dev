@@ -8,9 +8,9 @@ case class RawModule(
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
 ) {
-  private type Env = Environment[Type, Term]
+  private type Env = Environment[String, Type, Term]
   
-  def synthesize(using env: Env = Environment.empty[Type, Term]): Module = {
+  def synthesize(using env: Env = Environment.empty[String, Type, Term]): Module = {
     
     // We should synthesize types first, so that terms can refer to them.
     val sortedTypes = sortByDependency(types, (ty: ExprType, name: String) => ty.contains(name)) match {

@@ -12,7 +12,7 @@ trait NativeCallable {
 
 object NativeCallable {
 
-  type Env = Environment[Type, Term]
+  type Env = Environment[String, Type, Term]
 
   enum Kind {
     case Default

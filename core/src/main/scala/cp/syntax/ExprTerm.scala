@@ -8,7 +8,7 @@ import cp.util.{OptionalSpanned, SourceSpan}
 
 enum ExprTerm extends OptionalSpanned[ExprTerm] {
   
-  private type Env = Environment[Type, Term]
+  private type Env = Environment[String, Type, Term]
 
   case Primitive(value: Literal)
 

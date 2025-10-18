@@ -12,7 +12,7 @@ import org.scalatest.matchers.should
 
 trait TestExtension extends should.Matchers {
   
-  protected type Env = Environment[Type, Term]
+  protected type Env = Environment[String, Type, Term]
   
   extension (term: Term) def fullEval(using env: Env): Term = {
     term.eval(using env)(using EvalMode.Full)
