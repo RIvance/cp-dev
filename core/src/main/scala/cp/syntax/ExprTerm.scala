@@ -1,7 +1,7 @@
 package cp.syntax
 
 import cp.core.*
-import cp.core.LiteralType.*
+import cp.core.PrimitiveType.*
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, SourceSpan}
@@ -10,7 +10,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
   
   private type Env = Environment[String, Type, Term]
 
-  case Primitive(value: Literal)
+  case Primitive(value: PrimitiveValue)
 
   case Var(name: String)
 
@@ -36,7 +36,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case Merge(left: ExprTerm, right: ExprTerm, bias: MergeBias = MergeBias.Neutral)
 
-  // case Match( scrutinee: ExprTerm, cases: List[(Pattern, ExprTerm)])
+  // case Match(scrutinee: ExprTerm, cases: List[(Pattern, ExprTerm)])
 
   case Projection(record: ExprTerm, field: String)
 
@@ -91,12 +91,12 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
   ): (Term, Type) = this match {
     case ExprTerm.Primitive(value) => {
       val ty = value match {
-        case Literal.IntValue(_) => LiteralType.IntType
-        case Literal.FloatValue(_) => LiteralType.FloatType
-        case Literal.BoolValue(_) => LiteralType.BoolType
-        case Literal.RuneValue(_) => LiteralType.RuneType
-        case Literal.StringValue(_) => LiteralType.StringType
-        case Literal.UnitValue => LiteralType.UnitType
+        case PrimitiveValue.IntValue(_) => PrimitiveType.IntType
+        case PrimitiveValue.FloatValue(_) => PrimitiveType.FloatType
+        case PrimitiveValue.BoolValue(_) => PrimitiveType.BoolType
+        case PrimitiveValue.RuneValue(_) => PrimitiveType.RuneType
+        case PrimitiveValue.StringValue(_) => PrimitiveType.StringType
+        case PrimitiveValue.UnitValue => PrimitiveType.UnitType
       }
       (Term.Primitive(value), Type.Primitive(ty))
     }
@@ -200,7 +200,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     
     case ExprTerm.IfThenElse(condition, thenBranch, elseBranch) => {
       val (condTerm, condType) = condition.synthesize
-      if !(condType unify Type.Primitive(LiteralType.BoolType)) then TypeNotMatch.raise {
+      if !(condType unify Type.Primitive(PrimitiveType.BoolType)) then TypeNotMatch.raise {
         s"Condition of if-then-else must be of type Bool, but got: $condType"
       }
       val (thenTerm, thenType) = thenBranch.synthesize
@@ -412,7 +412,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             // The constructor body is `new trait => { methods... }`
             Term.Coercion(
               param = "self",
-              paramType = Type.Primitive(LiteralType.TopType),
+              paramType = Type.Primitive(PrimitiveType.TopType),
               body = Term.Record(methods.map {
                 case (methodName, (methodTerm, methodType)) => methodName -> methodTerm
               })
@@ -474,16 +474,16 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       val (leftTerm, leftType) = left.synthesize
       val (rightTerm, rightType) = right.synthesize
       (leftType, rightType) match {
-        case (Type.Primitive(LiteralType.TopType), _) => (rightTerm, rightType)
-        case (_, Type.Primitive(LiteralType.TopType)) => (leftTerm, leftType)
+        case (Type.Primitive(PrimitiveType.TopType), _) => (rightTerm, rightType)
+        case (_, Type.Primitive(PrimitiveType.TopType)) => (leftTerm, leftType)
         case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
           // Merging two traits
           if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
             s"Cannot merge two overlapping traits: $leftType and $rightType"
           }
           val mergedDomain = (leftDomain, rightDomain) match {
-            case (Type.Primitive(LiteralType.TopType), _) => rightDomain
-            case (_, Type.Primitive(LiteralType.TopType)) => leftDomain
+            case (Type.Primitive(PrimitiveType.TopType), _) => rightDomain
+            case (_, Type.Primitive(PrimitiveType.TopType)) => leftDomain
             case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
           Term.Merge(leftTerm, rightTerm) -> Type.Trait(
@@ -1032,9 +1032,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 }
 
 object ExprTerm {
-  def int(value: Int): ExprTerm = ExprTerm.Primitive(Literal.IntValue(value))
-  def str(value: String): ExprTerm = ExprTerm.Primitive(Literal.StringValue(value))
-  def bool(value: Boolean): ExprTerm = ExprTerm.Primitive(Literal.BoolValue(value))
-  def unit: ExprTerm = ExprTerm.Primitive(Literal.UnitValue)
+  def int(value: Int): ExprTerm = ExprTerm.Primitive(PrimitiveValue.IntValue(value))
+  def str(value: String): ExprTerm = ExprTerm.Primitive(PrimitiveValue.StringValue(value))
+  def bool(value: Boolean): ExprTerm = ExprTerm.Primitive(PrimitiveValue.BoolValue(value))
+  def unit: ExprTerm = ExprTerm.Primitive(PrimitiveValue.UnitValue)
 }
 

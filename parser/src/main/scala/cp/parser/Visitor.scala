@@ -528,15 +528,15 @@ class Visitor extends CpParserBaseVisitor[
       case varCtx: AtomicExprVarContext =>
         ExprTerm.Var(varCtx.Identifier.getText)
       case intCtx: AtomicExprIntContext =>
-        ExprTerm.Primitive(Literal.IntValue(intCtx.IntLit.getText.toInt))
+        ExprTerm.Primitive(PrimitiveValue.IntValue(intCtx.IntLit.getText.toInt))
       case floatCtx: AtomicExprFloatContext =>
-        ExprTerm.Primitive(Literal.FloatValue(floatCtx.FloatLit.getText.toFloat))
+        ExprTerm.Primitive(PrimitiveValue.FloatValue(floatCtx.FloatLit.getText.toFloat))
       case stringCtx: AtomicExprStringContext =>
-        ExprTerm.Primitive(Literal.StringValue(stringCtx.StringLit.getText.stripPrefix("\"").stripSuffix("\"")))
+        ExprTerm.Primitive(PrimitiveValue.StringValue(stringCtx.StringLit.getText.stripPrefix("\"").stripSuffix("\"")))
       case unitCtx: AtomicExprUnitContext =>
-        ExprTerm.Primitive(Literal.UnitValue)
+        ExprTerm.Primitive(PrimitiveValue.UnitValue)
       case boolCtx: AtomicExprBoolContext =>
-        ExprTerm.Primitive(Literal.BoolValue(boolCtx.BoolLit.getText == "true"))
+        ExprTerm.Primitive(PrimitiveValue.BoolValue(boolCtx.BoolLit.getText == "true"))
       case arrayCtx: AtomicExprArrayContext => 
         ExprTerm.ArrayLiteral(arrayCtx.array.visitArrayElements)
       case recordCtx: AtomicExprRecordContext => 
@@ -555,7 +555,7 @@ class Visitor extends CpParserBaseVisitor[
         val stmts = blockCtx.stmt.asScala.map(_.visit).toList
         val lastExpr = Option(blockCtx.typedExpr).map(_.visit)
         // Convert statements to nested lets
-        val body = stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(Literal.UnitValue))) { 
+        val body = stmts.foldRight(lastExpr.getOrElse(ExprTerm.Primitive(PrimitiveValue.UnitValue))) {
           (stmt, acc) => stmt match {
             case Statement.RefAssign(reference, value) =>
               ExprTerm.Do(
@@ -663,7 +663,7 @@ class Visitor extends CpParserBaseVisitor[
     val outType = Option(ctx.outType).map(_.visit)
     ExprType.Trait(
       Some(inType), 
-      outType.getOrElse(ExprType.Primitive(LiteralType.UnitType))
+      outType.getOrElse(ExprType.Primitive(PrimitiveType.UnitType))
     ).withSpan(ctx)
   }
 
@@ -703,11 +703,11 @@ class Visitor extends CpParserBaseVisitor[
 
   override def visitTypeIdent(ctx: TypeIdentContext): ExprType = {
     ctx.name.getText match {
-      case "Int" => ExprType.Primitive(LiteralType.IntType)
-      case "Float" => ExprType.Primitive(LiteralType.FloatType)
-      case "String" => ExprType.Primitive(LiteralType.StringType)
-      case "Bool" => ExprType.Primitive(LiteralType.BoolType)
-      case "Unit" => ExprType.Primitive(LiteralType.UnitType)
+      case "Int" => ExprType.Primitive(PrimitiveType.IntType)
+      case "Float" => ExprType.Primitive(PrimitiveType.FloatType)
+      case "String" => ExprType.Primitive(PrimitiveType.StringType)
+      case "Bool" => ExprType.Primitive(PrimitiveType.BoolType)
+      case "Unit" => ExprType.Primitive(PrimitiveType.UnitType)
       case ident => ExprType.Var(ident)
     }
   }
@@ -774,7 +774,7 @@ class Visitor extends CpParserBaseVisitor[
   enum Pattern {
     case Wildcard
     case Variable(name: String)
-    case Literal(value: Literal)
+    case PrimitiveValue(value: PrimitiveValue)
     case Constructor(name: String, patterns: List[Pattern])
     case Record(fields: Map[String, Pattern])
   }

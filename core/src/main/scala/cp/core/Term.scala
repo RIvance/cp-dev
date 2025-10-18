@@ -13,7 +13,7 @@ enum Term extends IdentifiedByString {
 
   case Typed(term: Term, ty: Type)
   
-  case Primitive(value: Literal)
+  case Primitive(value: PrimitiveValue)
   
   case Apply(func: Term, arg: Term)
   
@@ -701,7 +701,7 @@ enum Term extends IdentifiedByString {
     }
     
     case Tuple(elements) => {
-      if elements.isEmpty then Term.Primitive(Literal.UnitValue)
+      if elements.isEmpty then Term.Primitive(PrimitiveValue.UnitValue)
       else Term.Tuple(elements.map(_.eval))
     }
     
@@ -771,9 +771,9 @@ enum Term extends IdentifiedByString {
     case IfThenElse(condition, thenBranch, elseBranch) => {
       val conditionEval: Term = condition.eval
       (conditionEval, mode) match {
-        case (Primitive(Literal.BoolValue(true)), _) =>
+        case (Primitive(PrimitiveValue.BoolValue(true)), _) =>
           thenBranch.eval
-        case (Primitive(Literal.BoolValue(false)), _) =>
+        case (Primitive(PrimitiveValue.BoolValue(false)), _) =>
           elseBranch.eval
         case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
       }

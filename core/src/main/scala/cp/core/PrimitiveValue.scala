@@ -1,6 +1,6 @@
 package cp.core
 
-enum Literal {
+enum PrimitiveValue {
 
   case UnitValue
   case BoolValue(value: Boolean)
@@ -18,25 +18,25 @@ enum Literal {
     case StringValue(value) => s""""$value""""
   }
 
-  def ty: LiteralType = this match {
-    case UnitValue => LiteralType.UnitType
-    case BoolValue(_) => LiteralType.BoolType
-    case IntValue(_) => LiteralType.IntType
-    case FloatValue(_) => LiteralType.FloatType
-    case RuneValue(_) => LiteralType.RuneType
-    case StringValue(_) => LiteralType.StringType
+  def ty: PrimitiveType = this match {
+    case UnitValue => PrimitiveType.UnitType
+    case BoolValue(_) => PrimitiveType.BoolType
+    case IntValue(_) => PrimitiveType.IntType
+    case FloatValue(_) => PrimitiveType.FloatType
+    case RuneValue(_) => PrimitiveType.RuneType
+    case StringValue(_) => PrimitiveType.StringType
   }
   
   def toTerm: Term = Term.Primitive(this)
 }
 
-object Literal {
-  def unit: Literal = UnitValue
-  def trueValue: Literal = BoolValue(true)
-  def falseValue: Literal = BoolValue(false)
+object PrimitiveValue {
+  def unit: PrimitiveValue = UnitValue
+  def trueValue: PrimitiveValue = BoolValue(true)
+  def falseValue: PrimitiveValue = BoolValue(false)
 }
 
-enum LiteralType {
+enum PrimitiveType {
 
   case TopType
   case BottomType

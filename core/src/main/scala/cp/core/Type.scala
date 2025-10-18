@@ -1,7 +1,7 @@
 package cp.core
 
 import cp.error.CoreErrorKind.*
-import cp.core.LiteralType.*
+import cp.core.PrimitiveType.*
 import cp.util.IdentifiedByString
 
 import scala.annotation.targetName
@@ -12,7 +12,7 @@ enum Type extends IdentifiedByString {
 
   case Var(name: String)
   
-  case Primitive(ty: LiteralType)
+  case Primitive(ty: PrimitiveType)
   
   case Arrow(domain: Type, codomain: Type)
   

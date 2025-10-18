@@ -1,10 +1,10 @@
 package cp.intermediate
 
-import cp.core.LiteralType
+import cp.core.PrimitiveType
 import cp.util.IdentifiedByIndex
 
 enum TypeValue extends IdentifiedByIndex {
-  case Primitive(ty: LiteralType)
+  case Primitive(ty: PrimitiveType)
   case Record(fields: Map[String, TypeValue])
   case Fixpoint(name: String, body: TypeValue)
   case Function(paramType: TypeValue, returnType: TypeValue)
@@ -13,7 +13,7 @@ enum TypeValue extends IdentifiedByIndex {
 type TypeEnv = Map[Int, TypeValue]
 
 object TypeValue {
-  def int: TypeValue = TypeValue.Primitive(LiteralType.IntType)
-  def float: TypeValue = TypeValue.Primitive(LiteralType.FloatType)
-  def bool: TypeValue = TypeValue.Primitive(LiteralType.BoolType)
+  def int: TypeValue = TypeValue.Primitive(PrimitiveType.IntType)
+  def float: TypeValue = TypeValue.Primitive(PrimitiveType.FloatType)
+  def bool: TypeValue = TypeValue.Primitive(PrimitiveType.BoolType)
 }

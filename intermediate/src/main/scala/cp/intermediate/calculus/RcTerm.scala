@@ -1,12 +1,12 @@
 package cp.intermediate.calculus
 
-import cp.core.Literal
+import cp.core.PrimitiveValue
 import cp.intermediate.{NativePrototype, TypeEnv, TypeValue as Type}
 import cp.util.IdentifiedByIndex
 
 enum RcTerm extends IdentifiedByIndex {
   case Var(index: Int)
-  case Primitive(value: Literal)
+  case Primitive(value: PrimitiveValue)
   case If(condition: RcTerm, thenBranch: RcTerm, elseBranch: RcTerm)
   case Lambda(paramType: Type, body: RcTerm)
   case Apply(func: RcTerm, arg: RcTerm)

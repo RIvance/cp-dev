@@ -1,8 +1,8 @@
 package cp
 
-import cp.core.{Literal, LiteralType, Term, Type}
-import cp.core.Literal.*
-import cp.core.LiteralType.*
+import cp.core.{PrimitiveValue, PrimitiveType, Term, Type}
+import cp.core.PrimitiveValue.*
+import cp.core.PrimitiveType.*
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should

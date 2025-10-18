@@ -1,6 +1,6 @@
 package cp.intermediate.ssa.pure
 
-import cp.core.Literal
+import cp.core.PrimitiveValue
 import cp.intermediate.TypeValue as Type
 import cp.intermediate.ssa.BlockId.*
 import cp.intermediate.ssa.{BlockId, FuncId, VarId}
@@ -10,7 +10,7 @@ trait SSAConstruct
 
 enum Value extends SSAConstruct with IdentifiedByIndex {
   case Var(id: VarId)
-  case Const(value: Literal)
+  case Const(value: PrimitiveValue)
   case Closure(func: String, env: List[Value] = Nil)
 }
 

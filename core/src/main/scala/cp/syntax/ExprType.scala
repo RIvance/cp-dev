@@ -1,6 +1,6 @@
 package cp.syntax
 
-import cp.core.{Constraint, LiteralType, Type, TypeEnvironment, synthesize, verify}
+import cp.core.{Constraint, PrimitiveType, Type, TypeEnvironment, synthesize, verify}
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, IdentifiedByString, SourceSpan}
@@ -9,7 +9,7 @@ private type TypeEnv = TypeEnvironment[String, Type]
 
 enum ExprType extends OptionalSpanned[ExprType] with IdentifiedByString {
 
-  case Primitive(ty: LiteralType)
+  case Primitive(ty: PrimitiveType)
 
   case Var(name: String)
 

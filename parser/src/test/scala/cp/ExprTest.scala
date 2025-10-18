@@ -1,8 +1,8 @@
 package cp
 
-import cp.core.Literal.*
-import cp.core.LiteralType.*
-import cp.core.{Literal, LiteralType, Type}
+import cp.core.PrimitiveValue.*
+import cp.core.PrimitiveType.*
+import cp.core.{PrimitiveValue, PrimitiveType, Type}
 import cp.prelude.Prelude
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
@@ -27,8 +27,8 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
   test("concatenate two strings") {
     "\"Hello, \" ++ \"world!\"" >>> (
-      Literal.StringValue("Hello, world!").toTerm, 
-      LiteralType.StringType.toType
+      PrimitiveValue.StringValue("Hello, world!").toTerm,
+      PrimitiveType.StringType.toType
     )
   }
   
@@ -52,20 +52,20 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
   test("method style function call") {
     "114514.toString" >>> (
-      Literal.StringValue("114514").toTerm, 
-      LiteralType.StringType.toType
+      PrimitiveValue.StringValue("114514").toTerm,
+      PrimitiveType.StringType.toType
     )
     "(1 + 2).toString" >>> (
-      Literal.StringValue("3").toTerm, 
-      LiteralType.StringType.toType
+      PrimitiveValue.StringValue("3").toTerm,
+      PrimitiveType.StringType.toType
     )
     "(\"Hello, \" ++ \"world!\").length" >>> (
-      Literal.IntValue(13).toTerm, 
-      LiteralType.IntType.toType
+      PrimitiveValue.IntValue(13).toTerm,
+      PrimitiveType.IntType.toType
     )
     "(114.toString ++ 514.toString).length" >>> (
-      Literal.IntValue(6).toTerm, 
-      LiteralType.IntType.toType
+      PrimitiveValue.IntValue(6).toTerm,
+      PrimitiveType.IntType.toType
     )
   }
 }

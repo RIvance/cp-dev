@@ -1,8 +1,8 @@
 package cp.prelude
 
 import cp.core.{Environment, NativeFunction, NativeCallable, Term, Type}
-import cp.core.Literal.*
-import cp.core.LiteralType.*
+import cp.core.PrimitiveValue.*
+import cp.core.PrimitiveType.*
 
 object Prelude {
   import PreludeNativeImplementations.*
