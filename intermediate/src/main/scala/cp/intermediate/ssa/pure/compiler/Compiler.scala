@@ -1,7 +1,7 @@
 package cp.intermediate.ssa.pure.compiler
 
 import cp.core.Environment
-import cp.intermediate.TypeValue as Type
+import cp.intermediate.{BuiltInFunction, NativePrototype, NativePrototypePure, TypeValue as Type}
 import cp.intermediate.calculus.RcTerm as Term
 import cp.intermediate.ssa.pure.{Block, Function, Instruction, Program, SSAConstruct, Value}
 import cp.intermediate.ssa.{BlockId, FuncId, VarId}
@@ -111,7 +111,7 @@ private class FunctionBuilder(
 
     case Term.Merge(_, _) => ???
 
-    case Term.NativeCall(fn, args) => {
+    case Term.FunctionCall(fn: NativePrototype[Type], args) => {
       val funcIdent = if fn.isPure
         then s"@pure#${fn.name}"
         else s"@impure#${fn.name}"
@@ -125,6 +125,8 @@ private class FunctionBuilder(
       finalBlock += Instruction.Call(Value.Closure(fn.name), argValues, resultVar)
       (Value.Var(resultVar), finalBlock)
     }
+
+    case Term.FunctionCall(BuiltInFunction(name, argTypes, returnType, fn), args) => ???
 
     case Term.Record(fields) => {
       val (fieldValues, finalBlock) = fields.foldLeft((Map.empty[String, Value], block)) {
@@ -276,6 +278,7 @@ extension (term: Term) {
     case Term.Record(fields) => if fields.isEmpty then 0 else fields.values.map(_.maxVarIndex).max
     case Term.Project(record, _) => record.maxVarIndex
     case Term.Merge(left, right) => Math.max(left.maxVarIndex, right.maxVarIndex)
-    case Term.NativeCall(_, args) => if args.isEmpty then 0 else args.map(_.maxVarIndex).max
+    case Term.FunctionCall(_, args) => if args.isEmpty then 0 else args.map(_.maxVarIndex).max
+    case Term.Thunk(_, body, _) => body.maxVarIndex
   }
 }

@@ -8,7 +8,6 @@ type ValueEnv = Environment[String, Type, Value]
 enum Value extends IdentifiedByString {
 
   case Neutral(neutral: NeutralValue)
-  // HOAS
   case Primitive(value: PrimitiveValue)
   case Lambda(param: Option[String], paramType: Type, body: Value)
   case Record(fields: Map[String, Value])

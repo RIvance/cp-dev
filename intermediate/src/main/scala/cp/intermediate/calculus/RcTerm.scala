@@ -1,20 +1,24 @@
 package cp.intermediate.calculus
 
-import cp.core.PrimitiveValue
-import cp.intermediate.{NativePrototype, TypeEnv, TypeValue as Type}
+import cp.core.{Environment, PrimitiveValue}
+import cp.intermediate.{Prototype, TypeEnv, TypeValue as Type}
 import cp.util.IdentifiedByIndex
 
+type Env = Environment[Int, Type, RcTerm]
+
 enum RcTerm extends IdentifiedByIndex {
+
   case Var(index: Int)
   case Primitive(value: PrimitiveValue)
   case If(condition: RcTerm, thenBranch: RcTerm, elseBranch: RcTerm)
   case Lambda(paramType: Type, body: RcTerm)
   case Apply(func: RcTerm, arg: RcTerm)
   case Fixpoint(fixpointType: Type, body: RcTerm)
+  case Thunk(annotatedType: Type, body: RcTerm, env: Env)
   case Record(fields: Map[String, RcTerm])
   case Project(record: RcTerm, field: String)
   case Merge(left: RcTerm, right: RcTerm)
-  case NativeCall(fn: NativePrototype[Type], args: List[RcTerm])
+  case FunctionCall(fn: Prototype[Type], args: List[RcTerm])
 
   def infer(using env: TypeEnv = Map.empty): Type = ???
 
@@ -36,7 +40,9 @@ enum RcTerm extends IdentifiedByIndex {
       record.contains(index)
     case RcTerm.Merge(left, right) =>
       left.contains(index) || right.contains(index)
-    case RcTerm.NativeCall(_, args) =>
+    case RcTerm.FunctionCall(_, args) =>
       args.exists(_.contains(index))
   }
+
+  def partialEval(using env: Env): RcTerm = ???
 }

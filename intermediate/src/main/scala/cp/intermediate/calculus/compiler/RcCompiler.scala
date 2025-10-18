@@ -1,7 +1,7 @@
 package cp.intermediate.calculus.compiler
 
 import cp.core.{Environment, Module as CpModule, Term as CpTerm, Type as CpType}
-import cp.intermediate.calculus.RcTerm
+import cp.intermediate.calculus.{RcFunction, RcTerm}
 import cp.intermediate.TypeValue as RcType
 
 class RcCompiler(module: CpModule, modulePath: List[String]) {
@@ -13,4 +13,6 @@ class RcCompiler(module: CpModule, modulePath: List[String]) {
   }
 
   def compileTerm(term: CpTerm, env: Env): RcTerm = ???
+
+  def compile: Set[RcFunction] = ???
 }
