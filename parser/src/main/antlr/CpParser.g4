@@ -168,8 +168,8 @@ spineArgGroup
     ;
 
 exprArgGroup
-    :   exprs+=atomicExpr
-    |   ParenOpen exprs+=atomicExpr (Comma exprs+=atomicExpr)* ParenClose
+    :   expr=atomicExpr                                                     # exprArgGroupSingle
+    |   ParenOpen exprs+=expression (Comma exprs+=expression)* ParenClose   # exprArgGroupMultiple
     ;
 
 stmt
@@ -280,8 +280,8 @@ fieldAssign
     ;
 
 typeArgGroup
-    :   At types+=typeWithSort
-    |   BracketOpen (types+=typeWithSort (Comma types+=typeWithSort)*) BracketClose
+    :   At atomicType=typeWithSort                                      # typeArgGroupSingle
+    |   BracketOpen (types+=type (Comma types+=type)*) BracketClose     # typeArgGroupMultiple
     ;
 
 typeParam

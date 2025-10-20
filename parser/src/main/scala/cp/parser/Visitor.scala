@@ -439,11 +439,17 @@ class Visitor extends CpParserBaseVisitor[
   }
 
   extension (ctx: TypeArgGroupContext) {
-    def visit: List[ExprType] = ctx.types.asScala.map(_.visit).toList
+    def visit: List[ExprType] = ctx match {
+      case single: TypeArgGroupSingleContext => List(single.atomicType.visit)
+      case multi: TypeArgGroupMultipleContext => multi.types.asScala.map(_.visit).toList
+    }
   }
 
   extension (ctx: ExprArgGroupContext) {
-    def visit: List[ExprTerm] = ctx.exprs.asScala.map(_.visit).toList
+    def visit: List[ExprTerm] = ctx match {
+      case single: ExprArgGroupSingleContext => List(single.atomicExpr.visit)
+      case multi: ExprArgGroupMultipleContext => multi.exprs.asScala.map(_.visit).toList
+    }
   }
 
   extension (ctx: SpineArgGroupContext) {
