@@ -116,7 +116,8 @@ class Visitor extends CpParserBaseVisitor[
   
   extension (ctx: ExpressionContext) {
     def visit: ExprTerm = ctx match {
-      case ctx: ExpressionComplexContext => visitExpressionComplex(ctx)
+      case ctx: ExpressionCompContext => visitExpressionComp(ctx)
+      case ctx: ExpressionAppContext => visitExpressionApp(ctx)
       case ctx: ExpressionUnaryContext => visitExpressionUnary(ctx)
       case ctx: ExpressionIndexContext => visitExpressionIndex(ctx)
       case ctx: ExpressionMulDivContext => visitExpressionMulDiv(ctx)
@@ -135,7 +136,15 @@ class Visitor extends CpParserBaseVisitor[
   
   def visitExpression(ctx: ExpressionContext): ExprTerm = ctx.visit
 
-  override def visitExpressionComplex(ctx: ExpressionComplexContext): ExprTerm = {
+  override def visitExpressionApp(ctx: ExpressionAppContext): ExprTerm = visitAppExpr(ctx.appExpr)
+
+  override def visitAppExpr(ctx: AppExprContext): ExprTerm = {
+    val fn = ctx.dotExpr.visit
+    val args = ctx.args.asScala.flatMap(_.visit).toList
+    fn.foldApplication(args)
+  }
+
+  override def visitExpressionComp(ctx: ExpressionCompContext): ExprTerm = {
     ctx.compExpr.visit.withSpan(ctx)
   }
 
@@ -205,8 +214,6 @@ class Visitor extends CpParserBaseVisitor[
 
   extension (ctx: CompExprContext) {
     def visit: ExprTerm = ctx match {
-      case ctx: CompCtorAppContext => visitCompCtorApp(ctx)
-      case ctx: CompExprAppContext => visitCompExprApp(ctx)
       case ctx: CompExprLambdaContext => visitCompExprLambda(ctx)
       case ctx: CompExprTypeLambdaContext => visitCompExprTypeLambda(ctx)
       case ctx: CompExprLetInContext => visitCompExprLetIn(ctx)
@@ -230,18 +237,6 @@ class Visitor extends CpParserBaseVisitor[
       case (ExprTerm.TypeApply(term, existingTyArgs), arg: ExprType) => ExprTerm.TypeApply(term, existingTyArgs :+ arg)
       case (current, arg: ExprType) => ExprTerm.TypeApply(current, List(arg))
     }
-  }
-
-  override def visitCompCtorApp(ctx: CompCtorAppContext): ExprTerm = {
-    val ctor = ctx.Identifier.getText
-    val args: List[ExprTerm | ExprType] = ctx.args.asScala.map(_.visit).toList
-    ExprTerm.Var(ctor).foldApplication(args).withSpan(ctx)
-  }
-
-  override def visitCompExprApp(ctx: CompExprAppContext): ExprTerm = {
-    val func = ctx.excludeExpr.visit
-    val args: List[ExprTerm | ExprType] = ctx.args.asScala.map(_.visit).toList
-    func.foldApplication(args).withSpan(ctx)
   }
 
   override def visitCompExprLambda(ctx: CompExprLambdaContext): ExprTerm = {
@@ -386,27 +381,12 @@ class Visitor extends CpParserBaseVisitor[
     ExprTerm.Fixpoint(ctx.name.getText, ctx.ty.visit, ctx.expr.visit).withSpan(ctx)
   }
 
-  override def visitCompExprFold(ctx: CompExprFoldContext): ExprTerm = {
-    ExprTerm.FoldFixpoint(ctx.typeArg.visit, ctx.dotExpr.visit).withSpan(ctx)
-  }
-
-  override def visitCompExprUnfold(ctx: CompExprUnfoldContext): ExprTerm = {
-    ExprTerm.UnfoldFixpoint(ctx.typeArg.visit, ctx.dotExpr.visit).withSpan(ctx)
-  }
+  // TODO: whether we still need fold/unfold in the surface syntax?
+  override def visitCompExprFold(ctx: CompExprFoldContext): ExprTerm = ???
+  override def visitCompExprUnfold(ctx: CompExprUnfoldContext): ExprTerm = ???
 
   override def visitCompExprRef(ctx: CompExprRefContext): ExprTerm = {
     ExprTerm.Apply(ExprTerm.Var("$refInit"), List(ctx.dotExpr.visit))
-  }
-
-  extension (ctx: ExcludeExprContext) def visit: ExprTerm = {
-    (Option(ctx.excludeType), Option(ctx.removalField)) match {
-      case (Some(excludeType), _) =>
-        ExprTerm.Exclude(ctx.expr.visit, excludeType.visit).withSpan(ctx)
-      case (_, Some(removalField)) =>
-        ExprTerm.Remove(ctx.expr.visit, Set(removalField.getText)).withSpan(ctx)
-      case _ =>
-        ctx.expr.visit.withSpan(ctx)
-    }
   }
 
   extension (ctx: DotExprContext) def visit: ExprTerm = {
@@ -458,14 +438,18 @@ class Visitor extends CpParserBaseVisitor[
     def visit: SelfAnnotation[ExprType] = SelfAnnotation[ExprType](ctx.name.getText, Option(ctx.`type`).map(_.visit))
   }
 
-  extension (ctx: TypeArgContext) {
-    def visit: ExprType = ctx.typeWithSort.visit
+  extension (ctx: TypeArgGroupContext) {
+    def visit: List[ExprType] = ctx.types.asScala.map(_.visit).toList
   }
 
-  extension (ctx: SpineArgContext) {
-    def visit: ExprTerm | ExprType = ctx match {
-      case term: SpineArgTermContext => term.expr.visit
-      case ty: SpineArgTypeContext => ty.ty.visit
+  extension (ctx: ExprArgGroupContext) {
+    def visit: List[ExprTerm] = ctx.exprs.asScala.map(_.visit).toList
+  }
+
+  extension (ctx: SpineArgGroupContext) {
+    def visit: List[ExprTerm | ExprType] = ctx match {
+      case exprs: SpineArgGroupTermContext => exprs.exprArgGroup.visit
+      case types: SpineArgGroupTypeContext => types.typeArgGroup.visit
     }
   }
 
@@ -576,7 +560,7 @@ class Visitor extends CpParserBaseVisitor[
       }
       
       case appCtx: AtomicExprAppContext => {
-        val func = appCtx.atomicExpr.visit
+        val func = ExprTerm.Var(appCtx.Identifier.getText)
         val args = appCtx.args.asScala.map(_.visit).toList
         ExprTerm.Apply(func, args)
       }
@@ -586,6 +570,8 @@ class Visitor extends CpParserBaseVisitor[
         val typeArgs = typeAppCtx.args.asScala.map(_.visit)
         ExprTerm.TypeApply(term, typeArgs.toList)
       }
+
+      case expr: AtomicExprNestedContext => expr.expression.visit
     }
   }
 

@@ -122,8 +122,9 @@ typedExpr
     ;
 
 expression
-    :   compExpr                                                 # expressionComplex
-    |   op=(Minus | Sqrt | Deref) expression                     # expressionUnary
+    :   appExpr                                                     # expressionApp
+    |   compExpr                                                    # expressionComp
+    |   op=(Minus | Sqrt | Deref) expression                        # expressionUnary
     |   <assoc=left> arr=expression Index index=expression            # expressionIndex
     |   <assoc=left> lhs=expression op=(Asterisk | Slash | Modulo) rhs=expression   # expressionMulDiv
     |   <assoc=left> lhs=expression op=(Plus | Minus) rhs=expression                # expressionAddSub
@@ -138,10 +139,15 @@ expression
     |   expression With BraceOpen (fields+=fieldAssign Semicolon)* fields+=fieldAssign? BraceClose # expressionRecordUpdate
     ;
 
+appExpr
+    :   dotExpr (args+=spineArgGroup)*
+    ;
+
 compExpr
-    :   Identifier args+=spineArg*                            # compCtorApp
-    |   excludeExpr args+=spineArg*                         # compExprApp
-    |   (Fun | Backslash | Lambda)? termParams+=termParamGroup+ Arrow expr=typedExpr # compExprLambda
+    :
+//    |   Identifier args+=spineArgGroup*                         # compCtorApp
+//    |   compExpr args+=spineArgGroup*                           # compExprApp
+       (Fun | Backslash | Lambda)? termParams+=termParamGroup+ Arrow expr=typedExpr # compExprLambda
     |   SlashBackslash typeParams=typeParamList Dot expr=typedExpr # compExprTypeLambda
     |   Let name=Identifier typeParams=typeParamList? params+=termParamGroup* Assign value=typedExpr (Colon ty=type)? In body=typedExpr  # compExprLetIn
     |   LetRec name=Identifier typeParams=typeParamList? params+=termParamGroup* Colon ty=type Assign value=typedExpr In body=typedExpr  # compExprLetRec
@@ -151,14 +157,19 @@ compExpr
     |   Trait selfAnno? (Implements implType=type)? (Inherits inheritance=expression)? FatArrow expr=expression # compExprTrait
     |   New expr=expression # compExprNewTrait
     |   Fix name=Identifier Colon ty=type Dot expr=expression # compExprFixpoint
-    |   Fold typeArg dotExpr # compExprFold
-    |   Unfold typeArg dotExpr # compExprUnfold
+    |   Fold typeArgGroup dotExpr # compExprFold
+    |   Unfold typeArgGroup dotExpr # compExprUnfold
     |   Ref dotExpr # compExprRef
     ;
 
-spineArg
-    :   ty=typeArg         # spineArgType
-    |   expr=excludeExpr   # spineArgTerm
+spineArgGroup
+    :   typeArgGroup        # spineArgGroupType
+    |   exprArgGroup        # spineArgGroupTerm
+    ;
+
+exprArgGroup
+    :   exprs+=atomicExpr
+    |   ParenOpen exprs+=atomicExpr (Comma exprs+=atomicExpr)* ParenClose
     ;
 
 stmt
@@ -172,7 +183,7 @@ stmt
         // let { l1 = e1; l2 = e2; ... } = e
     |   Let BraceOpen fields+=recordFieldAlias (Comma fields+=recordFieldAlias)* BraceClose Assign value=typedExpr     # stmtLetRecord
         // r := e
-    |   ref=excludeExpr Walrus value=typedExpr    # stmtRefAssign
+    |   ref=atomicExpr Walrus value=typedExpr    # stmtRefAssign
     ;
 
 recordFieldAlias
@@ -182,10 +193,6 @@ recordFieldAlias
 typeParamList
     :   BracketOpen params+=boundedTypeParam (Comma params+=boundedTypeParam)* BracketClose     # typeParamListBracket
     |   params+=typeParam+                                                                      # typeParamListPlain
-    ;
-
-excludeExpr
-    :   expr=renameExpr (DoubleBackslashes excludeType=typeWithSort | Backslash removalField=Identifier)?
     ;
 
 renameExpr
@@ -231,7 +238,9 @@ atomicExpr
     |   Unit                            # atomicExprUnit
     |   BoolLit                         # atomicExprBool
     |   array                           # atomicExprArray
-    |   expr=atomicExpr ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose    # atomicExprApp
+    |   '(' expression ')'              # atomicExprNested
+    |   ident=Identifier ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose    # atomicExprApp
+//    |   expr=atomicExpr ParenOpen (args+=typedExpr (Comma args+=typedExpr)*)? ParenClose    # atomicExprApp
     |   expr=atomicExpr BracketOpen args+=type (Comma args+=type)* BracketClose             # atomicExprTypeApp
     |   record                          # atomicExprRecord
     |   recordUpdate                    # atomicExprRecordUpdate
@@ -270,9 +279,9 @@ fieldAssign
     :   field=Identifier Assign value=typedExpr
     ;
 
-typeArg
-    :   At typeWithSort
-    |   BracketOpen typeWithSort BracketClose
+typeArgGroup
+    :   At types+=typeWithSort
+    |   BracketOpen (types+=typeWithSort (Comma types+=typeWithSort)*) BracketClose
     ;
 
 typeParam

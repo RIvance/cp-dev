@@ -49,6 +49,17 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
       IntValue(42).toTerm, IntType.toType
     )
   }
+
+  test("multi-arg lambda application function call style") {
+    "(fun (x: Int, y: Int) -> x + y)(20, 22)" >>> (
+      IntValue(42).toTerm, IntType.toType
+    )
+  }
+
+  test("multi-arg application partial application style") {
+    val add = "fun (x: Int, y: Int) -> x + y"
+    s"(fun (f: Int -> Int -> Int) -> f(20)(22))($add)" >>> (IntValue(42).toTerm, IntType.toType)
+  }
   
   test("method style function call") {
     "114514.toString" >>> (
