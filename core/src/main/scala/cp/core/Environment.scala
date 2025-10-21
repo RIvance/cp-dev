@@ -111,6 +111,13 @@ case class Environment[Id, T <: Identified[Id], V <: Identified[Id]](
   def withValueVars[V1 <: V, R](vars: (Id, V1)*)(f: Environment[Id, T, V] => R): R = {
     f(copy(values = values ++ vars.toMap))
   }
+  
+  def merge(other: Environment[Id, T, V]): Environment[Id, T, V] = {
+    Environment(
+      types = this.types ++ other.types,
+      values = this.values ++ other.values,
+    )
+  }
 }
 
 extension [T <: IdentifiedByString, V <: IdentifiedByString](env: Environment[String, T, V]) {

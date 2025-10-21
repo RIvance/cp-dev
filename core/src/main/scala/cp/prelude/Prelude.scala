@@ -1,34 +1,47 @@
 package cp.prelude
 
-import cp.core.{Environment, NativeFunction, NativeCallable, Term, Type}
-import cp.core.PrimitiveValue.*
 import cp.core.PrimitiveType.*
+import cp.core.PrimitiveValue.*
+import cp.core.{Dependency, Environment, Module, Namespace, NativeCallable, NativeFunction, Term, Type}
 
-object Prelude {
+
+object Prelude extends Module with Dependency {
+
   import PreludeNativeImplementations.*
-  
+
   private type Env = Environment[String, Type, Term]
-  
-  lazy val environment: Env = Environment.builder[String, Type, Term].buildWith { builder =>
-    builder.valueVar("+", overloaded(addInt, addFloat))
-    builder.valueVar("-", overloaded(subInt, subFloat))
-    builder.valueVar("*", overloaded(mulInt, mulFloat))
-    builder.valueVar("==", overloaded(eqInt, eqFloat, eqString))
-    builder.valueVar("<", overloaded(ltInt, ltFloat))
-    builder.valueVar("<=", overloaded(leInt, leFloat))
-    builder.valueVar(">", overloaded(gtInt, gtFloat))
-    builder.valueVar(">=", overloaded(geInt, geFloat))
-    builder.valueVar("&&", logicAnd.toTerm)
-    builder.valueVar("||", logicOr.toTerm)
-    builder.valueVar("!", logicNot.toTerm)
-    builder.valueVar("++", concatString.toTerm)
-    builder.valueVar("length", lengthString.toTerm)
-    builder.valueVar("toString", overloaded(toStringInt, toStringFloat, toStringBool))
-  }
-  
+
+  lazy val environment: Env = Environment(
+    types = Map.empty,
+    values = terms,
+  )
+
   private def overloaded(implementations: NativeFunction*): Term = {
     implementations.map(_.toTerm).reduceLeft { (acc, fn) => Term.Merge(acc, fn) }
   }
+
+  override val terms: Map[String, Term] = Map(
+    "+" -> overloaded(addInt, addFloat),
+    "-" -> overloaded(subInt, subFloat),
+    "*" -> overloaded(mulInt, mulFloat),
+    "==" -> overloaded(eqInt, eqFloat, eqString),
+    "<" -> overloaded(ltInt, ltFloat),
+    "<=" -> overloaded(leInt, leFloat),
+    ">" -> overloaded(gtInt, gtFloat),
+    ">=" -> overloaded(geInt, geFloat),
+    "&&" -> logicAnd.toTerm,
+    "||" -> logicOr.toTerm,
+    "!" -> logicNot.toTerm,
+    "++" -> concatString.toTerm,
+    "length" -> lengthString.toTerm,
+    "toString" -> overloaded(toStringInt, toStringFloat, toStringBool)
+  )
+
+  override def toEnv: Environment[String, Type, Term] = this.environment
+
+  override def types: Map[String, Type] = Map.empty
+
+  override def namespace: Namespace = Namespace(List.empty)
 }
 
 object PreludeNativeImplementations {

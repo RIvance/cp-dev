@@ -1,6 +1,6 @@
 package cp.syntax
 
-import cp.core.{Constraint, Environment, Module, Term, Type}
+import cp.core.{Constraint, Environment, CoreModule, Term, Type}
 import cp.util.{OptionalSpanned, SourceSpan}
 
 enum Definition extends OptionalSpanned[Definition] {
@@ -26,5 +26,5 @@ enum Definition extends OptionalSpanned[Definition] {
     case _ => Definition.Spanned(span, this)
   }
   
-  def synthesize(using env: Environment[String, Type, Term]): Term | Type | Module = ???
+  def synthesize(using env: Environment[String, Type, Term]): Term | Type | CoreModule = ???
 }

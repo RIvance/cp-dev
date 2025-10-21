@@ -2,9 +2,10 @@ package cp.tool
 
 import cp.ast.{CpLexer, CpParser}
 import cp.cli.ReadEvalPrintLoop
-import cp.core.Module
+import cp.core.{Module, Namespace}
 import cp.error.SpannedError
 import cp.parser.{ErrorListener, Visitor}
+import cp.prelude.Prelude
 import cp.syntax.RawModule
 import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
 
@@ -33,7 +34,7 @@ def loadModule(source: String, path: Option[String] = None): Module = {
   catchError(source, path) { listener =>
     val parser = parseSource(source, listener)
     val rawModule: RawModule = Visitor().visitModule(parser.module())
-    rawModule.synthesize
+    rawModule.synthesize(Namespace("main"), Set(Prelude))
   }
 }
 

@@ -1,48 +1,79 @@
 package cp.core
 
-class Module(
-  val types: Map[String, Type],
-  val terms: Map[String, Term],
-  val submodules: Map[String, Module] = Map.empty,
-  val dependencies: Set[Dependency] = Set.empty
-) extends ModuleRef {
+trait Dependency {
+  def namespace: Namespace
+  def types: Map[String, Type]
+  def symbols: Map[String, Type]
+
+  def toEnv: Environment[String, Type, Term] = {
+    val terms = symbols.map { (name, ty) => name -> Term.Symbol(namespace, name, ty) }
+    Environment[String, Type, Term](types, terms)
+  }
+}
+
+trait Module extends Dependency {
+
+  def terms: Map[String, Term]
+  def submodules: Map[String, CoreModule] = Map.empty
+  def dependencies: Set[Dependency] = Set.empty
+
+  override def symbols: Map[String, Type] = {
+    given Environment[String, Type, Term] = this.unfoldEnv
+    terms.map { (name, term) => (name, term.infer) }
+  }
+
   def exportSymbols(exported: Set[String]): ExportedModule = {
     val exportedTypes = types.filter { case (name, _) => exported.contains(name) }
     val exportedTerms = terms.filter { case (name, _) => exported.contains(name) }
     ExportedModule(this, exportedTypes.keySet ++ exportedTerms.keySet)
   }
-  
-  def toEnv = Environment[String, Type, Term](types, terms)
 
-  override lazy val symbols: Map[String, Type] = {
-    given Environment[String, Type, Term] = this.toEnv
-    terms.map { (name, term) => (name, term.infer) }
-  }
+  def header: ModuleHeader = ModuleHeader(namespace, types, symbols)
 
-  def header: ModuleHeader = ModuleHeader(types, symbols)
+  def unfoldEnv: Environment[String, Type, Term] = Environment(types, terms)
 }
 
-case class Dependency(
-  modulePath: List[String],
-  moduleRef: ModuleRef,
-  symbolAlias: Map[String, String] = Map.empty
-)
+class CoreModule(
+  override val namespace: Namespace,
+  override val types: Map[String, Type],
+  override val terms: Map[String, Term],
+  override val submodules: Map[String, CoreModule] = Map.empty,
+  override val dependencies: Set[Dependency] = Set.empty
+) extends Module {
+  override lazy val symbols: Map[String, Type] = super.symbols
+}
 
-trait ModuleRef {
-  def types: Map[String, Type]
-  def symbols: Map[String, Type]
+case class ModuleDependency(
+  module: Module,
+  symbolAlias: Map[String, String] = Map.empty,
+) extends Dependency {
+
+  override def types: Map[String, Type] = module.types
+
+  override def symbols: Map[String, Type] = module.symbols
+
+  override def namespace: Namespace = module.namespace
+
+  override def toEnv: Environment[String, Type, Term] = {
+    val types = module.types.map { (name, ty) => symbolAlias.getOrElse(name, name) -> ty }
+    val terms = module.symbols.map { (name, ty) => symbolAlias.getOrElse(name, name) -> Term.Symbol(namespace, name, ty) }
+    Environment[String, Type, Term](types, terms)
+  }
 }
 
 case class ModuleHeader(
+  override val namespace: Namespace,
   override val types: Map[String, Type],
   override val symbols: Map[String, Type],
-) extends ModuleRef
+) extends Dependency
 
 case class ExportedModule(
   module: Module,
   exportedSymbols: Set[String]
-) extends ModuleRef {
-  
+) extends Dependency {
+
+  override def namespace: Namespace = module.namespace
+
   lazy val types: Map[String, Type] = {
     module.types.filter { case (name, _) => exportedSymbols.contains(name) }
   }
@@ -50,8 +81,8 @@ case class ExportedModule(
   lazy val terms: Map[String, Term] = {
     module.terms.filter { case (name, _) => exportedSymbols.contains(name) }
   }
-  
-  lazy val submodules: Map[String, Module] = {
+
+  lazy val submodules: Map[String, CoreModule] = {
     module.submodules.filter { case (name, _) => exportedSymbols.contains(name) }
   }
 

@@ -1,16 +1,17 @@
 package cp.syntax
 
-import cp.core.{Environment, Module, Term, Type}
+import cp.core.*
 import cp.util.Graph
 
 case class RawModule(
   terms: Map[String, ExprTerm],
   types: Map[String, ExprType],
   submodules: Map[String, RawModule],
+  dependencies: Set[String] = Set.empty,
 ) {
   private type Env = Environment[String, Type, Term]
   
-  def synthesize(using env: Env = Environment.empty[String, Type, Term]): Module = {
+  def synthesize(namespace: Namespace, compiledDependencies: Set[Dependency] = Set.empty): CoreModule = {
     
     // We should synthesize types first, so that terms can refer to them.
     val sortedTypes = sortByDependency(types, (ty: ExprType, name: String) => ty.contains(name)) match {
@@ -18,8 +19,12 @@ case class RawModule(
       case None => throw new RuntimeException("Cyclic dependency in type definitions")
     }
 
+    val env = compiledDependencies.foldLeft(Environment.empty[String, Type, Term]) { 
+      (envAcc, dependency) => envAcc.merge(dependency.toEnv)
+    }
+
     val synthesizedTypes = sortedTypes.foldLeft(env) { case (envAcc, (name, exprType)) =>
-      val ty = exprType.synthesize(using envAcc)(using Set.empty).normalize
+      val ty = exprType.synthesize(using envAcc)(using Set.empty).normalize(using envAcc)
       envAcc.addTypeVar(name, ty)
     }
 
@@ -33,12 +38,24 @@ case class RawModule(
       envAcc.addValueVar(name, term)
     }
     
-    Module(
-      terms = synthesizedTerms.values,
-      types = synthesizedTypes.types,
-      submodules = submodules.map { case (name, rawMod) => 
-        name -> rawMod.synthesize(using synthesizedTerms)
-      }
+    val mainModule = CoreModule(
+      namespace = namespace,
+      terms = synthesizedTerms.values.filter { case (name, _) => terms.contains(name) },
+      types = synthesizedTypes.types.filter { case (name, _) => types.contains(name) },
+      dependencies = compiledDependencies,
+    )
+    
+    CoreModule(
+      namespace = mainModule.namespace,
+      terms = mainModule.terms,
+      types = mainModule.types,
+      submodules = submodules.map { (name, rawSubmod) =>
+        name -> rawSubmod.synthesize(
+          namespace.join(name),
+          compiledDependencies + ModuleDependency(mainModule)
+        )
+      },
+      dependencies = compiledDependencies,
     )
   }
   
@@ -66,8 +83,8 @@ case class RawModule(
 
 object RawModule {
   
-  def empty: RawModule = RawModule(Map.empty, Map.empty, Map.empty)
-  
+  def empty: RawModule = RawModule(Seq.empty)
+
   def apply(definitions: Seq[Definition]): RawModule = {
     val (termDefs, typeDefs, submodDefs) = definitions.reverse.foldLeft((
       List.empty[Definition.TermDef], 
@@ -86,6 +103,7 @@ object RawModule {
         }
       }
     }
+
     RawModule(
       terms = termDefs.map(defn => defn.name -> defn.term).toMap,
       types = typeDefs.map(defn => defn.name -> defn.typeDef).toMap,

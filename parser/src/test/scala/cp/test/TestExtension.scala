@@ -1,7 +1,7 @@
 package cp.test
 
 import cp.ast.{CpLexer, CpParser}
-import cp.core.{Environment, EvalMode, Module, Term, Type}
+import cp.core.{Environment, EvalMode, Module, Namespace, Term, Type}
 import cp.error.SpannedError
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
@@ -40,9 +40,7 @@ trait TestExtension extends should.Matchers {
     (term.eval, ty.normalize)
   }
   
-  protected def synthModule(code: String)(
-    using env: Env = Prelude.environment
-  ): Module = catchError(code.strip) { listener =>
+  protected def synthModule(code: String): Module = catchError(code.strip) { listener =>
     val stripedCode = code.strip()
     val lexer = CpLexer(CharStreams.fromString(stripedCode))
     lexer.removeErrorListeners()
@@ -53,7 +51,7 @@ trait TestExtension extends should.Matchers {
     parser.addErrorListener(listener)
 
     val rawModule = Visitor().visitModule(parser.module())
-    rawModule.synthesize(using env)
+    rawModule.synthesize(Namespace("test"), Set(Prelude))
   }
 
   protected def printSourceWithHighlight(source: String, span: SourceSpan, info: String): Unit = {
@@ -122,6 +120,6 @@ trait TestExtension extends should.Matchers {
   }
   
   protected def module[T](code: String)(f: Env => T): Unit = {
-    f(synthModule(code)(using Prelude.environment).toEnv)
+    f(Prelude.environment.merge(synthModule(code).unfoldEnv))
   }
 }

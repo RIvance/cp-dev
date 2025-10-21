@@ -10,6 +10,9 @@ enum Term extends IdentifiedByString {
   type Env = Environment[String, Type, Term]
   
   case Var(name: String)
+  
+  // Symbols from external modules
+  case Symbol(path: Namespace, name: String, ty: Type)
 
   case Typed(term: Term, ty: Type)
   
@@ -80,6 +83,8 @@ enum Term extends IdentifiedByString {
         case Some(term) => term.infer
         case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
       }
+
+      case Symbol(_, _, ty) => ty
 
       case Typed(_, ty) => ty
 
@@ -239,6 +244,12 @@ enum Term extends IdentifiedByString {
       } else true
       case Some(term) => term.check(expectedType)
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
+    }
+
+    case Symbol(_, _, ty) => {
+      if !(ty <:< expectedType) then TypeNotMatch.raise {
+        s"Symbol has type ${ty}, which does not match expected type ${expectedType}"
+      } else true
     }
     
     case Typed(term, termType) => {
@@ -466,6 +477,10 @@ enum Term extends IdentifiedByString {
       case Some(term) => term.eval
       case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
     }
+
+    // TODO: As we will move this `eval` to an interpreter later,
+    //  the interpreter should be able to handle a module environment.
+    case Symbol(_, _, _) => this
 
     case Typed(term, expectedType) => {
       if !term.check(expectedType) then TypeNotMatch.raise {
@@ -857,6 +872,7 @@ enum Term extends IdentifiedByString {
   
   private def isValue(allowedParams: Set[String] = Set.empty): Boolean = this match {
     case Var(name) => allowedParams.contains(name)
+    case Symbol(_, _, _) => false
     case Primitive(_) => true
     case Lambda(param, _, body) => body.isValue(allowedParams + param)
     case Coercion(param, _, body) => body.isValue(allowedParams + param)
@@ -938,6 +954,7 @@ enum Term extends IdentifiedByString {
   
   override def contains(name: String): Boolean = this match {
     case Var(n) => n == name
+    case Symbol(_, _, _) => false
     case Typed(term, _) => term.contains(name)
     case Primitive(_) => false
     case Apply(func, arg) => func.contains(name) || arg.contains(name)
@@ -970,6 +987,7 @@ enum Term extends IdentifiedByString {
     // TODO: We should use unification here to check for structural equality.
     case _ if this == term => true
     case Var(_) => false
+    case Symbol(_, _, _) => false
     case Typed(t, _) => t.contains(term)
     case Primitive(_) => false
     case Apply(func, arg) => func.contains(term) || arg.contains(term)
@@ -999,6 +1017,7 @@ enum Term extends IdentifiedByString {
 
   // Add parentheses where necessary to ensure correct parsing.
   def toAtomString: String = this match {
+    case _: Symbol => s"($this)"
     case _: Lambda => s"($this)"
     case _: Coercion => s"($this)"
     case _: TypeLambda => s"($this)"
@@ -1015,6 +1034,8 @@ enum Term extends IdentifiedByString {
   override def toString: String = this match {
 
     case Var(name) => name
+
+    case Symbol(namespace, name, ty) => s"$namespace::$name : $ty"
 
     case Typed(term, ty) => s"($term : $ty)"
 

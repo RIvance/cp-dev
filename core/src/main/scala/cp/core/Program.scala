@@ -1,7 +1,7 @@
 package cp.core
 
 class Program(
-  val defaultModule: Module,
+  val defaultModule: CoreModule,
   val main: Term,
 ) {
   def terms: Map[String, Term] = defaultModule.terms
