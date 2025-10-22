@@ -4,9 +4,21 @@ trait Dependency {
   def namespace: Namespace
   def types: Map[String, Type]
   def symbols: Map[String, Type]
+  def qualifiedSymbols: Map[FullyQualifiedName, Type] = {
+    symbols.map { (name, ty) => namespace.qualified(name) -> ty }
+  }
 
-  def toEnv: Environment[String, Type, Term] = {
-    val terms = symbols.map { (name, ty) => name -> Term.Symbol(namespace, name, ty) }
+  def nameAlias: Map[String, String] = Map.empty
+
+  def importEnvironment: Environment[String, Type, Term] = {
+    val terms = symbols.map { (name, ty) =>
+      val aliasedName = nameAlias.getOrElse(name, name)
+      aliasedName -> Term.Symbol(namespace.qualified(name), ty)
+    }
+    val types = this.types.map { (name, ty) =>
+      val aliasedName = nameAlias.getOrElse(name, name)
+      aliasedName -> ty
+    }
     Environment[String, Type, Term](types, terms)
   }
 }
@@ -17,8 +29,16 @@ trait Module extends Dependency {
   def submodules: Map[String, CoreModule] = Map.empty
   def dependencies: Set[Dependency] = Set.empty
 
+  def accessibleSymbols: Map[FullyQualifiedName, Type] = {
+    qualifiedSymbols ++ submodules.flatMap {
+      (_, submodule) => submodule.qualifiedSymbols
+    } ++ dependencies.flatMap {
+      dependency => dependency.qualifiedSymbols
+    }
+  }
+
   override def symbols: Map[String, Type] = {
-    given Environment[String, Type, Term] = this.unfoldEnv
+    given Environment[String, Type, Term] = this.unfoldEnvironment
     terms.map { (name, term) => (name, term.infer) }
   }
 
@@ -30,7 +50,7 @@ trait Module extends Dependency {
 
   def header: ModuleHeader = ModuleHeader(namespace, types, symbols)
 
-  def unfoldEnv: Environment[String, Type, Term] = Environment(types, terms)
+  def unfoldEnvironment: Environment[String, Type, Term] = Environment(types, terms)
 }
 
 class CoreModule(
@@ -45,7 +65,7 @@ class CoreModule(
 
 case class ModuleDependency(
   module: Module,
-  symbolAlias: Map[String, String] = Map.empty,
+  override val nameAlias: Map[String, String] = Map.empty,
 ) extends Dependency {
 
   override def types: Map[String, Type] = module.types
@@ -53,12 +73,6 @@ case class ModuleDependency(
   override def symbols: Map[String, Type] = module.symbols
 
   override def namespace: Namespace = module.namespace
-
-  override def toEnv: Environment[String, Type, Term] = {
-    val types = module.types.map { (name, ty) => symbolAlias.getOrElse(name, name) -> ty }
-    val terms = module.symbols.map { (name, ty) => symbolAlias.getOrElse(name, name) -> Term.Symbol(namespace, name, ty) }
-    Environment[String, Type, Term](types, terms)
-  }
 }
 
 case class ModuleHeader(
@@ -87,7 +101,7 @@ case class ExportedModule(
   }
 
   override lazy val symbols: Map[String, Type] = {
-    given Environment[String, Type, Term] = module.toEnv
+    given Environment[String, Type, Term] = module.importEnvironment
     terms.map { (name, term) => (name, term.infer) }
   }
 }

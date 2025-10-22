@@ -120,6 +120,6 @@ trait TestExtension extends should.Matchers {
   }
   
   protected def module[T](code: String)(f: Env => T): Unit = {
-    f(Prelude.environment.merge(synthModule(code).unfoldEnv))
+    f(Prelude.environment.merge(synthModule(code).unfoldEnvironment))
   }
 }

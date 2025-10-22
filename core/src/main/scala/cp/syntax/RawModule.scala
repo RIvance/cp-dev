@@ -20,7 +20,7 @@ case class RawModule(
     }
 
     val env = compiledDependencies.foldLeft(Environment.empty[String, Type, Term]) { 
-      (envAcc, dependency) => envAcc.merge(dependency.toEnv)
+      (envAcc, dependency) => envAcc.merge(dependency.importEnvironment)
     }
 
     val synthesizedTypes = sortedTypes.foldLeft(env) { case (envAcc, (name, exprType)) =>

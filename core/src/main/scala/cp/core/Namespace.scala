@@ -15,8 +15,14 @@ case class Namespace(path: List[String], isRelative: Boolean = false) {
   }
 
   def join(that: String): Namespace = Namespace(this.path :+ that, this.isRelative)
+  
+  def qualified(localName: String): FullyQualifiedName = FullyQualifiedName(this, localName)
 }
 
 object Namespace {
   def apply(name: String): Namespace = Namespace(List(name))
+}
+
+case class FullyQualifiedName(namespace: Namespace, localName: String) {
+  override def toString: String = s"${namespace}::${localName}"
 }

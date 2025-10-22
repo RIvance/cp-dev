@@ -37,7 +37,7 @@ object Prelude extends Module with Dependency {
     "toString" -> overloaded(toStringInt, toStringFloat, toStringBool)
   )
 
-  override def toEnv: Environment[String, Type, Term] = this.environment
+  override def importEnvironment: Environment[String, Type, Term] = this.environment
 
   override def types: Map[String, Type] = Map.empty
 
