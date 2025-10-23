@@ -1,5 +1,6 @@
 package cp.core
 
+import cp.common.Environment
 import cp.error.CoreErrorKind.*
 import cp.util.{Graph, IdentifiedByString, Recoverable}
 
@@ -20,14 +21,11 @@ enum Term extends IdentifiedByString {
   
   case Apply(func: Term, arg: Term)
   
-  // Subtyping relationship A <: B implies a coercion function of type A -> B
-  case CoeApply(coe: Term, arg: Term)
+  case TypeApply(term: Term, typeArg: Type)
   
-  case TypeApply(term: Term, tyArg: Type)
+  case Lambda(param: String, paramType: Type, body: Term, isCoe: Boolean = false)
   
-  case Lambda(param: String, paramType: Type, body: Term)
-  
-  case Coercion(param: String, paramType: Type, body: Term)
+//  case Coercion(param: String, paramType: Type, body: Term)
   
   case TypeLambda(param: String, body: Term)
   
@@ -91,14 +89,11 @@ enum Term extends IdentifiedByString {
       case Primitive(value) => Type.Primitive(value.ty)
 
       case Apply(func, arg) => func.infer match {
-        case Type.Arrow(paramType, returnType) =>
+        case Type.Arrow(paramType, returnType, _) =>
           val argType: Type = arg.infer
           if !(argType <:< paramType) then TypeNotMatch.raise {
             s"Expected argument type: ${paramType}, but got: ${argType}"
           } else returnType
-        case Type.Trait(_, _) => 
-          // convert to a coercion application
-          Term.CoeApply(func, arg).infer
         case fnType@Type.Intersection(_, _) => 
           val argType = arg.infer
           fnType.testApplicationReturn(argType) match {
@@ -110,37 +105,14 @@ enum Term extends IdentifiedByString {
         case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
       }
 
-      case CoeApply(coe, arg) => coe.infer match {
-        case Type.Trait(paramType, returnType) =>
-          val argType = arg.infer
-          if !(argType <:< paramType) then TypeNotMatch.raise {
-            s"Expected argument type: ${paramType}, but got: ${argType}"
-          } else returnType
-        case fnType@Type.Intersection(_, _) => 
-          val argType = arg.infer
-          fnType.testApplicationReturn(argType) match {
-            case Some(returnType) => returnType
-            case None => TypeNotMatch.raise {
-              s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
-            }
-          }
-        case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
-      }
-
       case TypeApply(term, tyArg) => term.infer match {
         case Type.Forall(param, body, _) => body.subst(param, tyArg)
         case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
       }
 
-      case Lambda(param, paramType, body) => {
+      case Lambda(param, paramType, body, isCoe) => {
         env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
-          implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv))
-        }
-      }
-
-      case Coercion(param, paramType, body) => {
-        env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
-          implicit newEnv => Type.Trait(paramType, body.infer(using newEnv))
+          implicit newEnv => Type.Arrow(paramType, body.infer(using newEnv), isCoe)
         }
       }
 
@@ -236,226 +208,7 @@ enum Term extends IdentifiedByString {
     inferredType.normalize
   }
 
-  def check(expectedType: Type)(using env: Env): Boolean = this match {
-
-    case Var(name) => env.values.get(name) match {
-      case Some(Typed(_, ty)) => if !(ty <:< expectedType) then TypeNotMatch.raise {
-        s"Variable '$name' has type ${ty}, which does not match expected type ${expectedType}"
-      } else true
-      case Some(term) => term.check(expectedType)
-      case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
-    }
-
-    case Symbol(_, ty) => {
-      if !(ty <:< expectedType) then TypeNotMatch.raise {
-        s"Symbol has type ${ty}, which does not match expected type ${expectedType}"
-      } else true
-    }
-    
-    case Typed(term, termType) => {
-      if !(termType <:< expectedType) then TypeNotMatch.raise {
-        s"Annotated type ${termType} does not match expected type ${expectedType}"
-      } else term.check(termType)
-    }
-    
-    case Primitive(value) => Type.Primitive(value.ty) unify expectedType
-
-    case Apply(func, arg) => func.infer.testApplicationReturn(arg.infer) match {
-      case Some(returnType) =>
-        if !(returnType <:< expectedType) then TypeNotMatch.raise {
-          s"Function return type ${returnType} does not match expected type ${expectedType}"
-        } else true
-      case None => false
-    }
-
-    // case Apply(func, arg) => func.infer match {
-    //   case Type.Arrow(paramType, returnType) =>
-    //     if !(returnType <:< expectedType) then TypeNotMatch.raise {
-    //       s"Function return type ${returnType} does not match expected type ${expectedType}"
-    //     } else arg.check(paramType)
-    //   case Type.Trait(_, _) => 
-    //     // convert to a coercion application
-    //     Term.CoeApply(func, arg).check(expectedType)
-    //   case fnType@Type.Intersection(_, _) => {
-    //     val argType: Type = arg.infer
-    //     // Try to find a function type in the intersection that can produce expectedType
-    //     fnType.testApplicationReturn(argType) match {
-    //       case Some(returnType) =>
-    //         if !(returnType <:< expectedType) then TypeNotMatch.raise {
-    //           s"Function return type ${returnType} does not match expected type ${expectedType}"
-    //         } else true
-    //       case None => TypeNotMatch.raise {
-    //         s"Function type ${fnType} cannot be applied to argument type ${argType}"
-    //       }
-    //     }
-    //   }
-    //   case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
-    // }
-    
-    case CoeApply(coe, arg) => coe.infer.testApplicationReturn(arg.infer) match {
-      case Some(returnType) =>
-        if !(returnType <:< expectedType) then TypeNotMatch.raise {
-          s"Coercion return type ${returnType} does not match expected type ${expectedType}"
-        } else true
-      case None => false
-    }
-
-    // case CoeApply(coe, arg) => coe.infer match {
-    //   case Type.Trait(paramType, returnType) =>
-    //     if !(returnType <:< expectedType) then TypeNotMatch.raise {
-    //       s"Coercion return type ${returnType} does not match expected type ${expectedType}"
-    //     } else arg.check(paramType)
-    //   case fnType@Type.Intersection(_, _) => {
-    //     // Try to find a coercion function type in the intersection that can produce expectedType
-    //     val argType: Type = arg.infer
-    //     fnType.testApplicationReturn(argType) match {
-    //       case Some(returnType) =>
-    //         if !(returnType <:< expectedType) then TypeNotMatch.raise {
-    //           s"Coercion return type ${returnType} does not match expected type ${expectedType}"
-    //         } else true
-    //       case None => TypeNotMatch.raise {
-    //         s"Coercion function type ${fnType} cannot be applied to argument type ${argType}"
-    //       }
-    //     }
-    //   }
-    //   case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
-    // }
-    
-    case TypeApply(term, tyArg) => term.infer match {
-      case Type.Forall(param, body, constraints) =>
-        val instantiatedType = body.subst(param, tyArg)
-        if !(instantiatedType <:< expectedType) then TypeNotMatch.raise {
-          s"Instantiated type ${instantiatedType} does not match expected type ${expectedType}"
-        } else constraints.forall { constraint =>
-          if !constraint.verify(tyArg) then ConstraintNotSatisfied.raise {
-            s"Type argument $tyArg does not satisfy constraint $constraint"
-          } else true
-        }
-      case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
-    }
-    
-    case Lambda(param, paramType, body) => expectedType match {
-      case Type.Arrow(expectedParamType, expectedReturnType) =>
-        if !(paramType <:< expectedParamType) then TypeNotMatch.raise {
-          s"Lambda parameter type ${paramType} does not match expected type ${expectedParamType}"
-        } else {
-          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
-            implicit newEnv => body.check(expectedReturnType)(using newEnv)
-          }
-        }
-      case other => TypeNotMatch.raise(s"Expected function type, but got: ${other}")
-    }
-    
-    case Coercion(param, paramType, body) => expectedType match {
-      case Type.Trait(expectedParamType, expectedReturnType) =>
-        if !(paramType <:< expectedParamType) then TypeNotMatch.raise {
-          s"Coercion parameter type ${paramType} does not match expected type ${expectedParamType}"
-        } else {
-          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) {
-            implicit newEnv => body.check(expectedReturnType)(using newEnv)
-          }
-        }
-      case other => TypeNotMatch.raise(s"Expected coercion function type, but got: ${other}")
-    }
-    
-    case TypeLambda(param, body) => expectedType match {
-      case Type.Forall(expectedParam, bodyType, _) =>
-        if param != expectedParam then TypeNotMatch.raise {
-          s"Type lambda parameter ${param} does not match expected parameter ${expectedParam}"
-        } else {
-          env.withTypeVar(param, Type.Var(param)) { implicit newEnv =>
-            body.check(bodyType)(using newEnv)
-          }
-        }
-      case other => TypeNotMatch.raise(s"Expected polymorphic type, but got: ${other}")
-    }
-    
-    case Fixpoint(name, ty, recursiveBody) => {
-      // We don't check `ty <:< expectedType` here as we only care about the real type of the body
-      //  and the marked type `ty` is just a hint for typing of the body.
-      env.withValueVar(name, Term.Typed(Term.Var(name), ty)) { implicit newEnv =>
-        recursiveBody.check(ty)(using newEnv)
-      }
-    }
-    
-    case Projection(record, field) => record.infer match {
-      case Type.Record(fieldTypes) => fieldTypes.get(field) match {
-        case Some(fieldType) =>
-          if !(fieldType <:< expectedType) then TypeNotMatch.raise {
-            s"Field type ${fieldType} does not match expected type ${expectedType}"
-          } else true
-        case None => TypeNotMatch.raise {
-          s"Field '${field}' does not exist in record type ${record.infer}"
-        }
-      }
-      case other => TypeNotMatch.raise {
-        s"Expected record type, but got: ${other}"
-      }
-    }
-      
-    case Record(fields) => expectedType match {
-      case Type.Record(expectedFieldTypes) =>
-        expectedFieldTypes.forall { (name, expectedFieldType) =>
-          fields.get(name) match {
-            case Some(fieldTerm) => fieldTerm.check(expectedFieldType)
-            case None => NoSuchField.raise {
-              s"Field '${name}' does not exist in record: ${this}"
-            }
-          }
-        }
-      case other => TypeNotMatch.raise(s"Expected record type, but got: ${other}")
-    }
-    
-    case Tuple(elements) => expectedType match {
-      case Type.Tuple(expectedElementTypes) =>
-        if elements.length != expectedElementTypes.length then TypeNotMatch.raise {
-          s"Tuple length ${elements.length} does not match expected length ${expectedElementTypes.length}"
-        } else elements.zip(expectedElementTypes).forall { (term, ty) =>
-          term.check(ty)
-        }
-      case other => TypeNotMatch.raise(s"Expected tuple type, but got: ${other}")
-    }
-
-    case Merge(lhs, rhs, MergeBias.Left) => {
-      Merge(lhs, Term.Diff(rhs, lhs), MergeBias.Neutral).check(expectedType)
-    }
-    
-    case Merge(lhs, rhs, MergeBias.Right) => {
-      Merge(Term.Diff(lhs, rhs), rhs, MergeBias.Neutral).check(expectedType)
-    }
-    
-    case Merge(left, right, MergeBias.Neutral) => {
-      val leftType = left.infer
-      val rightType = right.infer
-      leftType.merge(rightType) <:< expectedType
-    }
-
-    case Diff(left, right) => {
-      val leftType = left.infer
-      val rightType = right.infer
-      (leftType diff rightType) <:< expectedType
-    }
-    
-    case IfThenElse(_, thenBranch, elseBranch) => {
-      thenBranch.check(expectedType) && elseBranch.check(expectedType)
-    }
-    
-    case ArrayLiteral(_) => ???
-    
-    case FoldFixpoint(_, _) => ???
-    
-    case UnfoldFixpoint(_, _) => ???
-    
-    case Do(_, body) => body.check(expectedType)
-    
-    case RefAddr(_, _) => ???
-    
-    // TODO: Do we need to implement a better checking for native function calls?
-    case NativeFunctionCall(function, args) => this.infer <:< expectedType
-    
-    case NativeProcedureCall(_, _) => ???
-    
-  }
+  def check(expectedType: Type)(using env: Env): Boolean = this.infer <:< expectedType
 
   /**
    * Evaluate the term according to the given evaluation mode.
@@ -469,392 +222,12 @@ enum Term extends IdentifiedByString {
    */
   def eval(using env: Env = Environment.empty[String, Type, Term])(
     using mode: EvalMode = EvalMode.Normalize
-  ): Term = this match {
-    
-    case Var(name) => env.values.get(name) match {
-      case Some(Typed(Var(newName), _)) if newName == name => this
-      case Some(Var(newName)) if newName == name => this
-      case Some(term) => term.eval
-      case None => UnboundVariable.raise(s"Variable '$name' is not bound in the environment.")
-    }
-
-    // TODO: As we will move this `eval` to an interpreter later,
-    //  the interpreter should be able to handle a module environment.
-    case Symbol(_, _) => this
-
-    case Typed(term, expectedType) => {
-      if !term.check(expectedType) then TypeNotMatch.raise {
-        s"Annotated type ${expectedType} does not match inferred type ${term.infer}"
-      } else term.eval.filter(expectedType) // TODO: do we need to keep the type annotation after evaluation?
-    }
-
-    // TODO: In fact, we should consider using the following implementation
-    //  which preserves the type annotation if the term is not fully evaluated.
-    // case Typed(term, expectedType) => {
-    //   val normalizedExpectedType = expectedType.normalize
-    //   val filteredTerm: Term = term.eval.filter(normalizedExpectedType)
-    //   val filteredTermInfer = filteredTerm.infer
-    //   if !term.check(normalizedExpectedType) then TypeNotMatch.raise {
-    //     s"Annotated type ${normalizedExpectedType} does not match inferred type ${term.infer}"
-    //   } else if filteredTerm.isValue || (filteredTermInfer unify normalizedExpectedType) then filteredTerm else {
-    //     Term.Typed(filteredTerm, normalizedExpectedType)
-    //   }
-    // }
-    
-    case Primitive(_) => this
-    
-    case Apply(func, arg) => {
-      // In all modes, we first evaluate the function and argument.
-      val argEval: Term = arg.eval
-      // If current mode is Full, we unfold the inner fixpoints once.
-      // Consider evaluating the following example:
-      //  Step 1:
-      //   ```
-      //   (fix $self = {
-      //      isEven = λ(n: Int) -> (if n == 0 then true else $self.isOdd(n - 1)); 
-      //      isOdd  = λ(n: Int) -> (if n == 0 then false else $self.isEven(n - 1));
-      //    }).isEven 42
-      //   ```
-      //   Here, as the function part is a projection from a fixpoint,
-      //    we need to unfold the fixpoint once to get the actual function body.
-      //
-      //  Step 2:
-      //    ```
-      //    (λ(n: Int) -> if n == 0 then true else (fix $self = { ... }).isOdd(n - 1)) 42
-      //    ```
-      //   After the unfolding, we can perform beta-reduction.
-      //
-      //  Step 3:
-      //    ```
-      //    if n == 0 then true else (fix $self = { ... }).isOdd(41)
-      //    ```
-      //   Now, it is safe to further unfold the inner fixpoint (one-time) when evaluating the else branch.
-      //
-      val evalMode = if mode == EvalMode.Full then EvalMode.Unfold else EvalMode.Normalize
-      val funcEval: Term = func.eval(using env)(using evalMode)
-
-      funcEval.infer match {
-        // It is a coercion application if the function type is a Trait.
-        case Type.Trait(_, _) => return Term.CoeApply(funcEval, argEval).eval(using env)(using mode)
-        case _ => () // continue
-      }
-      
-      // In normalization mode, 
-      //  when argument is a pure value term (e.g. primitives, pure lambdas, etc.),
-      //  we can perform beta-reduction.
-      // Otherwise, we keep the application form to avoid multiple evaluations of the argument.
-      // In full evaluation mode, we always perform beta-reduction.
-      //  This is safe because all side effects are contained in native procedure calls,
-      //  which is only evaluated once at the moment of argument evaluation.
-      //  So that even if the argument is not a pure value term,
-      //  it will not cause multiple side effects.
-      (funcEval, argEval, mode) match {
-        
-        case (Fixpoint(name, _, body), argValue, EvalMode.Full) if argValue.isValue => {
-          // Unfold the fixpoint once when it is applied to a value argument.
-          env.withValueVar(name, funcEval) { implicit newEnv =>
-            Term.Apply(body, argValue).eval(using newEnv)
-          }
-        }
-          
-        case (Lambda(param, paramType, body), argValue, _) if argValue.isValue => {
-          env.withValueVar(param, Typed(argValue.filter(paramType), paramType)) {
-            implicit newEnv => body.eval(using newEnv) 
-          }
-        }
-        
-        case (Lambda(param, paramType, body), argValue, EvalMode.Full) => {
-          env.withValueVar(param,  Typed(argValue.filter(paramType), paramType)) {
-            implicit newEnv => body.eval(using newEnv) 
-          }
-        }
-        
-        case (NativeFunctionCall(function, args), argValue, _) if args.length < function.arity => {
-          // For partially applied native function calls, we can perform type application
-          //  to instantiate the polymorphic native function.
-          val evaluatedArgs: Seq[Term] = (args :+ argValue).map(_.eval)
-          if args.length + 1 == function.arity && evaluatedArgs.forall(_.isValue) then {
-            // If this application makes the native function fully applied,
-            //  we can evaluate it to a primitive value.
-            function.call(evaluatedArgs)
-          } else {
-            // Otherwise, typecheck existing args and return a new partially applied native function call.
-            evaluatedArgs.zip(function.paramTypes).foreach { (arg, paramType) =>
-              val argType = arg.infer
-              if !(argType <:< paramType) then TypeNotMatch.raise {
-                s"Expected argument type: ${paramType}, but got: ${argType}"
-              }
-            }
-            Term.NativeFunctionCall(function, evaluatedArgs)
-          }
-        }
-          
-        case (Merge(left, right, MergeBias.Neutral), argEval, _) => {
-          // Special case: when the function is a merge of two functions,
-          //  we can try to apply both branches to the argument.
-          //  If one branch fails (e.g. due to type mismatch), we return the other branch's result.
-          //  If both branches succeed, we return a merge of both results.
-          val leftApp = Recoverable { Term.Apply(left, argEval).eval(using env)(using mode) }
-          val rightApp = Recoverable { Term.Apply(right, argEval).eval(using env)(using mode) }
-          (leftApp, rightApp) match {
-            case (Success(l), Success(r)) => Term.Merge(l, r, MergeBias.Neutral).eval
-            case (Success(l), Failure(_)) => l
-            case (Failure(_), Success(r)) => r
-            case (Failure(_), Failure(_)) => TypeNotMatch.raise {
-              s"Both branches of merge function failed to apply to argument: $argEval"
-            }
-          }
-        }
-        
-        case _ => Term.Apply(funcEval, argEval)
-      }
-    }
-    
-    case CoeApply(coe, arg) => {
-      // Similar to `Apply`.
-      val argEval: Term = arg.eval
-      val coeEval: Term = coe.eval
-      (coeEval, argEval, mode) match {
-        case (Coercion(param, _, body), argValue, _) =>
-          env.withValueVar(param, argValue) { implicit newEnv => body.eval(using newEnv) }
-        case _ => Term.CoeApply(coeEval, argEval)
-      }
-    }
-    
-    case TypeApply(term, tyArg) => {
-      val termEval: Term = term.eval
-      val normalizedTyArg = tyArg.normalize
-      (termEval, mode) match {
-        // It is always safe to perform type-level beta-reduction.
-        case (TypeLambda(param, body), _) => 
-          env.withTypeVar(param, normalizedTyArg) { implicit newEnv => body.eval(using newEnv) }
-        case _ => Term.TypeApply(termEval, normalizedTyArg)
-      }
-    }
-    
-    case Lambda(param, paramType, body) => {
-      val newParamType = paramType.normalize
-      env.withValueVar(param, Term.Typed(Term.Var(param), newParamType)) {
-        implicit newEnv => Term.Lambda(param, newParamType, body.eval(using newEnv))
-      }
-    }
-    
-    case Coercion(param, paramType, body) => {
-      val newParamType = paramType.normalize
-      env.withValueVar(param, Term.Typed(Term.Var(param), newParamType)) {
-        implicit newEnv => Term.Coercion(param, newParamType, body.eval(using newEnv))
-      }
-    }
-    
-    case TypeLambda(param, body) => {
-      env.withTypeVar(param, Type.Var(param)) { 
-        implicit newEnv => Term.TypeLambda(param, body.eval(using newEnv))
-      }
-    }
-    
-    case Fixpoint(name, ty, recursiveBody) => {
-      if !recursiveBody.contains(name) then {
-        // If the body does not contain the fixpoint variable,
-        //  then it is not really a recursive definition.
-        // We can just evaluate the body directly.
-        recursiveBody.eval
-      } else env.withValueVar(name, Term.Typed(Term.Var(name), ty)) {
-        implicit newEnv => Term.Fixpoint(name, ty, recursiveBody.eval(using newEnv))
-      }
-    }
-    
-    case Projection(record, field) => {
-      val recordEval: Term = record.eval
-      recordEval match {
-        case Record(fields) => fields.get(field) match {
-          case Some(value) => value.eval
-          case None => NoSuchField.raise {
-            s"Field '$field' does not exist in record: $recordEval"
-          }
-        }
-        // See <https://i.cs.hku.hk/~bruno/papers/yaozhu.pdf>
-        //  page 206. Reconciliation between eagerness and laziness
-        case Fixpoint(name, ty, Record(fields)) => {
-          // We check whether there's a mutual recursion between the fields using graph analysis.
-          lazy val initGraph = Graph.directed[String].addVertices(fields.keySet)
-          lazy val graph = fields.foldLeft(initGraph) { (graph0, entry) =>
-            val (fieldName, fieldTerm) = entry
-            fields.keySet.foldLeft(graph0) { (graph1, otherFieldName) =>
-              if fieldTerm.contains(Projection(Var(name), otherFieldName)) then {
-                graph1.addEdge(fieldName, otherFieldName)
-              } else graph1
-            }
-          }
-          if mode == EvalMode.Normalize && graph.isInCycle(field) then {
-            // If the field is in a cycle, we cannot safely unfold the fixpoint.
-            //  We return the projection term as is to avoid non-termination.
-            Term.Projection(recordEval, field)
-          }
-          // For a projection on a fixpoint whose body is a record:
-          else fields.get(field) match {
-            // If the field does not contain the fixpoint variable,
-            //  we can safely return the field value directly.
-            case Some(value) if !value.contains(name) => value.eval
-            // Otherwise, we unfold the fixpoint once
-            //  (i.e., replace the fixpoint variable with the fixpoint itself)
-            //  and then return the field value.
-            case Some(value) => env.withValueVar(name, recordEval) { implicit newEnv =>
-              value.eval(using newEnv)(using if mode == EvalMode.Unfold then EvalMode.Normalize else mode)
-            }
-            case None => NoSuchField.raise {
-              s"Field '$field' does not exist in record: $recordEval"
-            }
-          }
-        }
-        case _ => Term.Projection(recordEval, field)
-      }
-    }
-      
-    case Record(fields) => {
-      val evaluatedFields = fields.map { (name, term) => (name, term.eval) }
-      Term.Record(evaluatedFields)
-    }
-    
-    case Tuple(elements) => {
-      if elements.isEmpty then Term.Primitive(PrimitiveValue.UnitValue)
-      else Term.Tuple(elements.map(_.eval))
-    }
-    
-    case Merge(left, right, MergeBias.Left) => {
-      Merge(left, Term.Diff(right, left), MergeBias.Neutral).eval
-    }
-    
-    case Merge(left, right, MergeBias.Right) => {
-      Merge(Term.Diff(left, right), right, MergeBias.Neutral).eval
-    }
-    
-    case Merge(left, right, MergeBias.Neutral) => {
-      val leftEval: Term = left.eval
-      val rightEval: Term = right.eval
-      
-      if !(leftEval.infer disjointWith rightEval.infer) then TypeNotMatch.raise {
-        s"Cannot merge terms with overlapping types: ${leftEval.infer} and ${rightEval.infer}"
-      }
-      
-      (leftEval, rightEval) match {
-        case (Record(leftFields), Record(rightFields)) => {
-          // Merging two records, recursively merge common fields.
-          val commonFields = leftFields.keySet.intersect(rightFields.keySet).map { fieldName =>
-            (fieldName, Term.Merge(leftFields(fieldName), rightFields(fieldName)).eval)
-          }.toMap
-          val leftOnlyFields = leftFields.filterNot { (name, _) => commonFields.contains(name) }
-          val rightOnlyFields = rightFields.filterNot { (name, _) => commonFields.contains(name) }
-          Term.Record(leftOnlyFields ++ rightOnlyFields ++ commonFields)
-        }
-        case (Tuple(leftElements), Tuple(rightElements)) if leftElements.length == rightElements.length => {
-          val mergedElements = leftElements.zip(rightElements).map { (l, r) =>
-            Term.Merge(l, r, MergeBias.Neutral).eval
-          }
-          Term.Tuple(mergedElements)
-        }
-        case (Coercion(paramL, paramTypeL, bodyL), Coercion(paramR, paramTypeR, bodyR)) => {
-          val param = if paramL == paramR then paramL else env.freshVarName(bodyL, bodyR)
-          val paramType = paramTypeL merge paramTypeR
-          env.withValueVar(param, Term.Typed(Term.Var(param), paramType)) { implicit newEnv =>
-            val body = Term.Merge(bodyL, bodyR).eval(using newEnv)
-            Term.Coercion(param, paramType, body)
-          }
-        }
-        case _ => Term.Merge(leftEval, rightEval, MergeBias.Neutral)
-      }
-    }
-
-    case Diff(left, right) => (left, right) match {
-      case (Record(leftFields), Record(rightFields)) => {
-        // Differencing two records, recursively difference common fields.
-        //  for a pair of common fields `f: A` and `f: B`,
-        //   we remove `f` from the left record if `B <: A`
-        val commonFields = leftFields.keySet.intersect(rightFields.keySet)
-        val reservedCommonFields = commonFields.filterNot { fieldName =>
-          val leftFieldType = leftFields(fieldName).infer
-          val rightFieldType = rightFields(fieldName).infer
-          rightFieldType <:< leftFieldType
-        }.map { fieldName =>
-          (fieldName, Term.Diff(leftFields(fieldName), rightFields(fieldName)).eval)
-        }.toMap
-        val leftOnlyFields = leftFields.filterNot { (name, _) => commonFields.contains(name) }
-        Term.Record(leftOnlyFields ++ reservedCommonFields)
-      }
-      case _ => Term.Diff(left.eval, right.eval)
-    }
-
-    case IfThenElse(condition, thenBranch, elseBranch) => {
-      val conditionEval: Term = condition.eval
-      (conditionEval, mode) match {
-        case (Primitive(PrimitiveValue.BoolValue(true)), _) =>
-          thenBranch.eval
-        case (Primitive(PrimitiveValue.BoolValue(false)), _) =>
-          elseBranch.eval
-        case _ => Term.IfThenElse(conditionEval, thenBranch.eval, elseBranch.eval)
-      }
-    }
-
-    case ArrayLiteral(elements) => {
-      val evaluatedElements = elements.map(_.eval)
-      Term.ArrayLiteral(evaluatedElements)
-    }
-
-    case FoldFixpoint(_, _) => ???
-
-    case UnfoldFixpoint(_, _) => ???
-
-    case Do(expr, body) => {
-      // In normalization mode, we do not discard the value of expr after evaluation.
-      //  This is to prevent discarding side effects in expr.
-      // In full evaluation mode, we discard the value of expr after evaluation.
-      //  This is safe because all side effects are contained in native procedure calls,
-      //  which is only evaluated once at the moment of expr evaluation.
-      //  So that even if the value of expr is discarded, the side effects are preserved.
-      val exprEval: Term = expr.eval
-      mode match {
-        case EvalMode.Normalize | EvalMode.Unfold => Term.Do(exprEval, body.eval)
-        case EvalMode.Full => body.eval
-      }
-    }
-
-    case RefAddr(_, _) => this
-
-    case NativeFunctionCall(function, args) => {
-      // The evaluation of native function calls are similar to Apply.
-      //  As native functions are only implemented to handle pure values,
-      //  we only perform beta-reduction when all arguments are fully evaluated to pure values.
-      val evaluatedArgs: Seq[Term] = args.map(_.eval)
-      // Check the argument types against the function's parameter types.
-      function.paramTypes.zip(evaluatedArgs).foreach { (paramType, arg) =>
-        val argType = arg.infer
-        if !(argType <:< paramType) then TypeNotMatch.raise {
-          s"Expected argument type: ${paramType}, but got: ${argType}"
-        }
-      }
-      if evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == function.arity then {
-        function.call(evaluatedArgs)
-      } else {
-        Term.NativeFunctionCall(function, evaluatedArgs)
-      }
-    }
-    case NativeProcedureCall(procedure, args) => {
-      // The evaluation of native procedure calls are similar to Apply.
-      //  As native procedures may have side effects,
-      //  we only perform beta-reduction in full evaluation mode
-      //  when all arguments are fully evaluated to pure values.
-      val evaluatedArgs: Seq[Term] = args.map(_.eval)
-      if mode == EvalMode.Full && evaluatedArgs.forall(_.isValue) && evaluatedArgs.length == procedure.arity then {
-        procedure.call(evaluatedArgs)
-      } else {
-        Term.NativeProcedureCall(procedure, evaluatedArgs)
-      }
-    }
-  }
+  ): Term = ??? // This will be moved to a separate interpreter class.
   
   def new_(env: Env, traitType: Type): (Term, Type) = {
     given Env = env
     traitType.normalize match {
-      case Type.Trait(domain, codomain) => {
+      case Type.Arrow(domain, codomain, isTrait) if isTrait => {
         if codomain <:< domain then {
           Term.Fixpoint("$self", domain, Term.Apply(this, Term.Var("$self"))) -> codomain
         } else TypeNotMatch.raise {
@@ -869,13 +242,77 @@ enum Term extends IdentifiedByString {
     val traitType = this.infer
     this.new_(env, traitType)._1
   }
+
+  def mapSubterms(f: Term => Term): Term = this match {
+    case Var(_) | Symbol(_, _) | Primitive(_) => this
+    case Typed(term, ty) => Typed(f(term), ty)
+    case Apply(func, arg) => Apply(f(func), f(arg))
+    case TypeApply(term, tyArg) => TypeApply(f(term), tyArg)
+    case Lambda(param, paramType, body, isCoe) => Lambda(param, paramType, f(body), isCoe)
+    case TypeLambda(param, body) => TypeLambda(param, f(body))
+    case Fixpoint(name, ty, recursiveBody) => Fixpoint(name, ty, f(recursiveBody))
+    case Projection(record, field) => Projection(f(record), field)
+    case Record(fields) => Record(fields.map { (name, term) => (name, f(term)) })
+    case Tuple(elements) => Tuple(elements.map(f))
+    case Merge(left, right, bias) => Merge(f(left), f(right), bias)
+    case Diff(left, right) => Diff(f(left), f(right))
+    case IfThenElse(condition, thenBranch, elseBranch) =>
+      IfThenElse(f(condition), f(thenBranch), f(elseBranch))
+    // case Match(scrutinee, clauses) => Match(f(scrutinee), clauses.map(_.mapSubterms(f)))
+    case ArrayLiteral(elements) => ArrayLiteral(elements.map(f))
+    case FoldFixpoint(fixpointType, body) => FoldFixpoint(fixpointType, f(body))
+    case UnfoldFixpoint(fixpointType, term) => UnfoldFixpoint(fixpointType, f(term))
+    case Do(expr, body) => Do(f(expr), f(body))
+    case RefAddr(_, _) => this
+    case NativeFunctionCall(function, args) => NativeFunctionCall(function, args.map(f))
+    case NativeProcedureCall(procedure, args) => NativeProcedureCall(procedure, args.map(f))
+  }
+
+  def mapTypes(f: Type => Type): Term = this match {
+    case Var(_) | Primitive(_) => this
+    case Symbol(name, ty) => Symbol(name, f(ty))
+    case Typed(term, ty) => Typed(term.mapTypes(f), f(ty))
+    case Apply(func, arg) => Apply(func.mapTypes(f), arg.mapTypes(f))
+    case TypeApply(term, tyArg) => TypeApply(term.mapTypes(f), f(tyArg))
+    case Lambda(param, paramType, body, isCoe) =>
+      Lambda(param, f(paramType), body.mapTypes(f), isCoe)
+    case TypeLambda(param, body) => TypeLambda(param, body.mapTypes(f))
+    case Fixpoint(name, ty, recursiveBody) =>
+      Fixpoint(name, f(ty), recursiveBody.mapTypes(f))
+    case Projection(record, field) => Projection(record.mapTypes(f), field)
+    case Record(fields) => Record(fields.map { (name, term) => (name, term.mapTypes(f)) })
+    case Tuple(elements) => Tuple(elements.map(_.mapTypes(f)))
+    case Merge(left, right, bias) =>
+      Merge(left.mapTypes(f), right.mapTypes(f), bias)
+    case Diff(left, right) => Diff(left.mapTypes(f), right.mapTypes(f))
+    case IfThenElse(condition, thenBranch, elseBranch) =>
+      IfThenElse(
+        condition.mapTypes(f),
+        thenBranch.mapTypes(f),
+        elseBranch.mapTypes(f)
+      )
+    // case Match(scrutinee, clauses) =>
+    //   Match(scrutinee.mapTypes(f), clauses.map(_.mapTypes(f)))
+    case ArrayLiteral(elements) => ArrayLiteral(elements.map(_.mapTypes(f)))
+    case FoldFixpoint(fixpointType, body) =>
+      FoldFixpoint(f(fixpointType), body.mapTypes(f))
+    case UnfoldFixpoint(fixpointType, term) =>
+      UnfoldFixpoint(f(fixpointType), term.mapTypes(f))
+    case Do(expr, body) => Do(expr.mapTypes(f), body.mapTypes(f))
+    case RefAddr(refType, address) => RefAddr(f(refType), address)
+    case NativeFunctionCall(function, args) =>
+      NativeFunctionCall(function, args.map(_.mapTypes(f)))
+    case NativeProcedureCall(procedure, args) =>
+      NativeProcedureCall(procedure, args.map(_.mapTypes(f)))
+  }
+
+  def normalizeTypes(using env: Env): Term = this.mapTypes(_.normalize(using env))
   
   private def isValue(allowedParams: Set[String] = Set.empty): Boolean = this match {
     case Var(name) => allowedParams.contains(name)
     case Symbol(_, _) => false
     case Primitive(_) => true
-    case Lambda(param, _, body) => body.isValue(allowedParams + param)
-    case Coercion(param, _, body) => body.isValue(allowedParams + param)
+    case Lambda(param, _, body, _) => body.isValue(allowedParams + param)
     case Fixpoint(name, _, body) => body.isValue(allowedParams + name)
     case TypeLambda(_, body) => body.isValue(allowedParams)
     case Typed(term, _) => term.isValue(allowedParams)
@@ -958,11 +395,9 @@ enum Term extends IdentifiedByString {
     case Typed(term, _) => term.contains(name)
     case Primitive(_) => false
     case Apply(func, arg) => func.contains(name) || arg.contains(name)
-    case CoeApply(coe, arg) => coe.contains(name) || arg.contains(name)
     case TypeApply(term, _) => term.contains(name)
     // The bound variable shadows the name, so we do not look into the body.
-    case Lambda(param, _, body) => param != name && body.contains(name)
-    case Coercion(param, _, body) => param != name && body.contains(name)
+    case Lambda(param, _, body, _) => param != name && body.contains(name)
     case TypeLambda(_, body) => body.contains(name)
     case Fixpoint(fixName, _, body) => fixName != name && body.contains(name)
     case Projection(record, _) => record.contains(name)
@@ -991,10 +426,8 @@ enum Term extends IdentifiedByString {
     case Typed(t, _) => t.contains(term)
     case Primitive(_) => false
     case Apply(func, arg) => func.contains(term) || arg.contains(term)
-    case CoeApply(coe, arg) => coe.contains(term) || arg.contains(term)
     case TypeApply(t, _) => t.contains(term)
-    case Lambda(_, _, body) => body.contains(term)
-    case Coercion(_, _, body) => body.contains(term)
+    case Lambda(_, _, body, _) => body.contains(term)
     case TypeLambda(_, body) => body.contains(term)
     case Fixpoint(_, _, body) => body.contains(term)
     case Projection(record, _) => record.contains(term)
@@ -1019,13 +452,11 @@ enum Term extends IdentifiedByString {
   def toAtomString: String = this match {
     case _: Symbol => s"($this)"
     case _: Lambda => s"($this)"
-    case _: Coercion => s"($this)"
     case _: TypeLambda => s"($this)"
     case _: Fixpoint => s"($this)"
     case _: IfThenElse => s"($this)"
     case _: Merge => s"($this)"
     case _: Apply => s"($this)"
-    case _: CoeApply => s"($this)"
     case _: TypeApply => s"($this)"
     case _: NativeFunctionCall => s"($this)"
     case _ => this.toString
@@ -1043,13 +474,11 @@ enum Term extends IdentifiedByString {
 
     case Apply(func, arg) => s"${func.toAtomString} ${arg.toAtomString}"
 
-    case CoeApply(coe, arg) => s"${coe.toAtomString} ${arg.toAtomString}"
-
     case TypeApply(term, tyArg) => s"${term.toAtomString} @${tyArg}"
 
-    case Lambda(param, paramType, body) => s"λ($param: $paramType). ${body.toAtomString}"
+    case Lambda(param, paramType, body, false) => s"λ($param: $paramType). ${body.toAtomString}"
 
-    case Coercion(param, paramType, body) => s"trait ($param: $paramType). $body"
+    case Lambda(param, paramType, body, true) => s"trait ($param: $paramType). $body"
 
     case TypeLambda(param, body) => s"Λ$param. $body"
 

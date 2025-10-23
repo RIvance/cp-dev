@@ -1,7 +1,8 @@
 package cp.test
 
 import cp.ast.{CpLexer, CpParser}
-import cp.core.{Environment, EvalMode, Module, Namespace, Term, Type}
+import cp.common.Environment
+import cp.core.{EvalMode, Module, Namespace, Term, Type}
 import cp.error.SpannedError
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude

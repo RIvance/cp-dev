@@ -1,5 +1,6 @@
 package cp.core
 
+import cp.common.TypeEnvironment
 import cp.error.CoreErrorKind
 import cp.error.CoreErrorKind.TypeNotMatch
 

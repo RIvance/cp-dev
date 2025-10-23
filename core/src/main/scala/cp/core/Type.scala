@@ -1,5 +1,6 @@
 package cp.core
 
+import cp.common.TypeEnvironment
 import cp.error.CoreErrorKind.*
 import cp.core.PrimitiveType.*
 import cp.util.IdentifiedByString
@@ -14,9 +15,9 @@ enum Type extends IdentifiedByString {
   
   case Primitive(ty: PrimitiveType)
   
-  case Arrow(domain: Type, codomain: Type)
+  case Arrow(domain: Type, codomain: Type, isTrait: Boolean = false)
   
-  case Trait(domain: Type, codomain: Type)
+//  case Trait(domain: Type, codomain: Type)
   
   case Forall(
     paramName: String, codomain: Type, 
@@ -50,14 +51,10 @@ enum Type extends IdentifiedByString {
 
     case Primitive(_) => this
 
-    case Arrow(domain, codomain) => {
-      Arrow(domain.subst(from, replacement), codomain.subst(from, replacement))
+    case Arrow(domain, codomain, isTrait) => {
+      Arrow(domain.subst(from, replacement), codomain.subst(from, replacement), isTrait)
     }
-
-    case Trait(domain, codomain) => {
-      Trait(domain.subst(from, replacement), codomain.subst(from, replacement))
-    }
-
+    
     case Fixpoint(name, body) => {
       if name == from then this else {
         Fixpoint(name, body.subst(from, replacement))
@@ -146,8 +143,8 @@ enum Type extends IdentifiedByString {
         }
       }
 
-      case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
-        domain1.unify(domain2) && codomain1.unify(codomain2)
+      case (Arrow(domain1, codomain1, isTrait1), Arrow(domain2, codomain2, isTrait2)) => {
+        isTrait1 == isTrait2 && domain1.unify(domain2) && codomain1.unify(codomain2)
       }
       
       case (Intersection(l1, r1), Intersection(l2, r2)) => {
@@ -181,10 +178,6 @@ enum Type extends IdentifiedByString {
       
       case (Apply(func1, arg1), Apply(func2, arg2)) => {
         func1.unify(func2) && arg1.unify(arg2)
-      }
-      
-      case (Trait(impl1, constr1), Trait(impl2, constr2)) => {
-        impl1.unify(impl2) && constr1.unify(constr2)
       }
       
       case (Diff(l1, r1), Diff(l2, r2)) => l1.unify(l2) && r1.unify(r2)
@@ -224,13 +217,13 @@ enum Type extends IdentifiedByString {
         env.types.get(name).exists(normThis.unify) || normThis.unify(normThat)
       }
 
-      case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
-        domain2 <:< domain1 && codomain1 <:< codomain2
+      case (Arrow(domain1, codomain1, isTrait1), Arrow(domain2, codomain2, isTrait2)) => {
+        isTrait1 == isTrait2 && domain2 <:< domain1 && codomain1 <:< codomain2
       }
 
       // (A -> B) & (C -> D) <: (A & C) -> (B & D)
-      case (Intersection(Arrow(a, b), Arrow(c, d)), Arrow(ac, bd)) => {
-        (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)
+      case (Intersection(Arrow(a, b, isTrait1), Arrow(c, d, isTrait2)), Arrow(ac, bd, isTrait3)) => {
+        isTrait1 == isTrait2 && isTrait2 == isTrait3 && (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)
       }
 
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
@@ -292,8 +285,6 @@ enum Type extends IdentifiedByString {
 
       case (Apply(func1, arg1), Apply(func2, arg2)) => func1.unify(func2) && arg1.unify(arg2)
       
-      case (Trait(impl1, constr1), Trait(impl2, constr2)) => impl1.unify(impl2) && constr1 <:< constr2
-      
       case (Diff(l1, r1), Diff(l2, r2)) => l1.unify(l2) && r1.unify(r2)
       
       case (left, right) => left.unify(right)
@@ -310,9 +301,7 @@ enum Type extends IdentifiedByString {
     
     case Primitive(ty) => this
 
-    case Arrow(domain, codomain) => Arrow(domain.normalize, codomain.normalize)
-
-    case Trait(domain, codomain) => Trait(domain.normalize, codomain.normalize)
+    case Arrow(domain, codomain, isTrait) => Arrow(domain.normalize, codomain.normalize, isTrait)
 
     case Forall(param, codomain, constraints) => {
       env.withTypeVar(param, Type.Var(param)) { implicit newEnv =>
@@ -423,7 +412,7 @@ enum Type extends IdentifiedByString {
 
   private def isBottomLike: Boolean = this match {
     case Primitive(BottomType) => true
-    case Arrow(domain, _) => domain.isBottomLike
+    case Arrow(domain, _, _) => domain.isBottomLike
     case Intersection(left, right) => left.isBottomLike || right.isBottomLike
     case Union(left, right) => left.isBottomLike && right.isBottomLike
     case Record(fields) => fields.values.exists(_.isBottomLike)
@@ -546,11 +535,7 @@ enum Type extends IdentifiedByString {
     // We might need a better representation of such type in the future if we
     //  want to do reasoning on the type system.
     // But for now, this should be fine for a practical implementation.
-    case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) => {
-      if (domain2 <:< domain1) && (codomain1 <:< codomain2) then Type.bottom else this.normalize
-    }
-
-    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) => {
+    case (Arrow(domain1, codomain1, _), Arrow(domain2, codomain2, _)) => {
       if (domain2 <:< domain1) && (codomain1 <:< codomain2) then Type.bottom else this.normalize
     }
 
@@ -587,11 +572,9 @@ enum Type extends IdentifiedByString {
   }
 
   infix def merge(that: Type)(using env: TypeEnv): Type = (this, that) match {
-    case (Arrow(domain1, codomain1), Arrow(domain2, codomain2)) 
-      if domain1 unify domain2 => 
-      Arrow(domain1, codomain1.merge(codomain2).normalize)
-    case (Trait(domain1, codomain1), Trait(domain2, codomain2)) =>
-      Trait(Intersection(domain1, domain2).normalize, codomain1.merge(codomain2).normalize)
+    case (Arrow(domain1, codomain1, isTrait1), Arrow(domain2, codomain2, isTrait2)) 
+      if isTrait1 == isTrait2 && (domain1 unify domain2) => 
+      Arrow(domain1, codomain1.merge(codomain2).normalize, isTrait1)
     case (Record(fields1), Record(fields2)) 
       if fields1.keySet == fields2.keySet =>
       Record(fields1.map { case (label, ty1) => label -> ty1.merge(fields2(label)).normalize })
@@ -611,8 +594,8 @@ enum Type extends IdentifiedByString {
   
   def split: Option[(Type, Type)] = this match {
     case Intersection(lhs, rhs) => Some((lhs, rhs))
-    case Arrow(domain, codomain) => codomain.split match {
-      case Some((left, right)) => Some((Arrow(domain, left), Arrow(domain, right)))
+    case Arrow(domain, codomain, isTrait) => codomain.split match {
+      case Some((left, right)) => Some((Arrow(domain, left, isTrait), Arrow(domain, right, isTrait)))
       case None => None
     }
     case Record(fields) if fields.isEmpty => None
@@ -643,8 +626,7 @@ enum Type extends IdentifiedByString {
   override def contains(name: String): Boolean = this match {
     case Var(n) => n == name
     case Primitive(_) => false
-    case Arrow(domain, codomain) => domain.contains(name) || codomain.contains(name)
-    case Trait(domain, codomain) => domain.contains(name) || codomain.contains(name)
+    case Arrow(domain, codomain, _) => domain.contains(name) || codomain.contains(name)
     case Forall(param, codomain, constraints) => param != name && {
       codomain.contains(name) || constraints.exists(_.subject.contains(name))
     }
@@ -662,11 +644,7 @@ enum Type extends IdentifiedByString {
   }
   
   def getParamAndReturnTypes: (List[Type], Type) = this match {
-    case Arrow(domain, codomain) => {
-      val (params, ret) = codomain.getParamAndReturnTypes
-      (domain :: params, ret)
-    }
-    case Trait(domain, codomain) => {
+    case Arrow(domain, codomain, _) => {
       val (params, ret) = codomain.getParamAndReturnTypes
       (domain :: params, ret)
     }
@@ -676,11 +654,7 @@ enum Type extends IdentifiedByString {
   
   def testApplicationReturn(argType: Type)(using env: TypeEnv): Option[Type] = this match {
     
-    case Arrow(domain, codomain) => {
-      if argType <:< domain then Some(codomain) else None
-    }
-    
-    case Trait(domain, codomain) => {
+    case Arrow(domain, codomain, _) => {
       if argType <:< domain then Some(codomain) else None
     }
     
@@ -702,8 +676,7 @@ enum Type extends IdentifiedByString {
   def toAtomString: String = this match {
     case Forall(_, _, _) => s"(${toString})"
     case Signature(_, _, _) => s"(${toString})"
-    case Arrow(_, _) => s"(${toString})"
-    case Trait(_, _) => s"(${toString})"
+    case Arrow(_, _, _) => s"(${toString})"
     case Apply(_, _) => s"(${toString})"
     case Intersection(_, _) => s"(${toString})"
     case Union(_, _) => s"(${toString})"
@@ -718,9 +691,9 @@ enum Type extends IdentifiedByString {
     
     case Primitive(ty) => ty.toString
     
-    case Arrow(domain, codomain) => s"${domain.toAtomString} -> ${codomain.toString}"
+    case Arrow(domain, codomain, true) => s"${domain.toAtomString} -> ${codomain.toString}"
     
-    case Trait(domain, codomain) => s"${domain.toAtomString} => ${codomain.toString}"
+    case Arrow(domain, codomain, false) => s"${domain.toAtomString} => ${codomain.toString}"
     
     case Forall(param, codomain, constraints) => {
       val constraintsStr = if constraints.isEmpty then ""

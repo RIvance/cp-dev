@@ -1,19 +1,12 @@
 package cp.core
 
+import cp.common.{CallablePrototype, Environment}
 import cp.error.CoreErrorKind
 import cp.error.CoreErrorKind.*
 
-trait NativeCallable {
-  def returnType: Type
-  def paramTypes: Seq[Type]
-  def arity: Int = paramTypes.length
-  def call(args: Seq[Term])(using env: NativeCallable.Env): Term
-}
-
+trait NativeCallable extends CallablePrototype[String, Type, Term]
 object NativeCallable {
-
   type Env = Environment[String, Type, Term]
-
   enum Kind {
     case Default
     case Operator(symbol: String)
@@ -48,6 +41,8 @@ class NativeFunction(
   val kind: NativeCallable.Kind = NativeCallable.Kind.Default,
 ) extends NativeCallableBase(returnType, paramTypes, implementation) {
   def toTerm: Term = Term.NativeFunctionCall(this, Seq.empty[Term])
+  override def isPure: Boolean = true
+  override def name: String = toString
   override def toString: String = kind match {
     case NativeCallable.Kind.Operator(symbol) => symbol
     case NativeCallable.Kind.Function(name) => name
@@ -56,7 +51,10 @@ class NativeFunction(
 }
 
 class NativeProcedure(
+  override val name: String,
   returnType: Type,
   paramTypes: Seq[Type],
   implementation: Seq[Term] => Term,
-) extends NativeCallableBase(returnType, paramTypes, implementation)
+) extends NativeCallableBase(returnType, paramTypes, implementation) {
+  override def isPure: Boolean = false
+}

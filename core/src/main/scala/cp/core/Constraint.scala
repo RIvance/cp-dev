@@ -1,5 +1,6 @@
 package cp.core
 
+import cp.common.TypeEnvironment
 import cp.syntax.ExprType
 
 import scala.annotation.tailrec

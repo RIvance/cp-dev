@@ -1,5 +1,7 @@
 package cp.core
 
+import cp.common.Environment
+
 trait Dependency {
   def namespace: Namespace
   def types: Map[String, Type]

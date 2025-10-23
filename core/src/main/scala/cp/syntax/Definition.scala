@@ -1,6 +1,7 @@
 package cp.syntax
 
-import cp.core.{Constraint, Environment, CoreModule, Term, Type}
+import cp.common.Environment
+import cp.core.{Constraint, CoreModule, Term, Type}
 import cp.util.{OptionalSpanned, SourceSpan}
 
 enum Definition extends OptionalSpanned[Definition] {
@@ -13,7 +14,7 @@ enum Definition extends OptionalSpanned[Definition] {
   
   case TypeDef(
     name: String, 
-    typeDef: ExprType, 
+    typ: ExprType, 
     constraints: Set[Constraint[ExprType]] = Set.empty,
   )
   

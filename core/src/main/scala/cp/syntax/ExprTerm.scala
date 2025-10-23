@@ -1,5 +1,6 @@
 package cp.syntax
 
+import cp.common.Environment
 import cp.core.*
 import cp.core.PrimitiveType.*
 import cp.error.{CoreError, SpannedError, UnknownError}
@@ -101,11 +102,9 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       (Term.Primitive(value), Type.Primitive(ty))
     }
 
-    case ExprTerm.Var(name) => {
-      env.values.get(name) match {
-        case Some(term) => (term, term.infer)
-        case None => UnresolvedReference.raise(s"Undefined symbol: $name")
-      }
+    case ExprTerm.Var(name) => env.values.get(name) match {
+      case Some(term) => (term, term.infer)
+      case None => UnresolvedReference.raise(s"Undefined symbol: $name")
     }
 
     case ExprTerm.Typed(expr, expectedTypeExpr) => {
@@ -121,7 +120,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       val (fnAppTerm, fnAppType) = args.foldLeft((fnTerm, fnType)) {
         case ((accFnTerm: Term, accFnType: Type), arg) => {
           accFnType match {
-            case Type.Arrow(domain, codomain) => {
+            case Type.Arrow(domain, codomain, _) => {
               // When arg is a lambda without annotation, 
               //  we need to infer its type from accFnType
               val (argTerm: Term, argType: Type) = arg.synthesize(using Some(domain))
@@ -142,9 +141,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                 }
               }
             }
-            case _ => TypeNotMatch.raise {
-              s"Function application on a non-function type: $accFnType"
-            }
+            case _ => TypeNotMatch.raise { s"Function application on a non-function type: $accFnType" }
           }
         }
       }
@@ -157,7 +154,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       val paramType: Type = paramTypeOpt match {
         case Some(tyExpr) => tyExpr.synthesize
         case None => expectedType match {
-          case Some(Type.Arrow(domain, _)) => domain
+          case Some(Type.Arrow(domain, _, isTrait)) if !isTrait => domain
           case _ => TypeNotMatch.raise {
             s"Cannot infer parameter type of lambda without annotation: $this"
           }
@@ -410,12 +407,13 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
               methodName -> body.synthesize(using expectedMethodTypes.get(methodName))(using newEnv)(using constraints)
             }.toMap
             // The constructor body is `new trait => { methods... }`
-            Term.Coercion(
+            Term.Lambda(
               param = "self",
               paramType = Type.Primitive(PrimitiveType.TopType),
               body = Term.Record(methods.map {
                 case (methodName, (methodTerm, methodType)) => methodName -> methodTerm
-              })
+              }),
+              isCoe = true
             ).new_
           }
 
@@ -476,7 +474,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       (leftType, rightType) match {
         case (Type.Primitive(PrimitiveType.TopType), _) => (rightTerm, rightType)
         case (_, Type.Primitive(PrimitiveType.TopType)) => (leftTerm, leftType)
-        case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
+        case (Type.Arrow(leftDomain, leftCodomain, true), Type.Arrow(rightDomain, rightCodomain, true)) => {
           // Merging two traits
           if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
             s"Cannot merge two overlapping traits: $leftType and $rightType"
@@ -486,9 +484,10 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             case (_, Type.Primitive(PrimitiveType.TopType)) => leftDomain
             case _ => Type.Intersection(leftDomain, rightDomain).normalize
           }
-          Term.Merge(leftTerm, rightTerm) -> Type.Trait(
+          Term.Merge(leftTerm, rightTerm) -> Type.Arrow(
             domain = mergedDomain,
-            codomain = Type.Intersection(leftCodomain, rightCodomain).normalize
+            codomain = Type.Intersection(leftCodomain, rightCodomain).normalize,
+            isTrait = true
           )
         }
         case _ => 
@@ -603,7 +602,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         case Some(inheritExpr) => {
           val (inheritTerm: Term, inheritType: Type) = inheritExpr.synthesize
           inheritType match {
-            case Type.Trait(inheritDomain, inheritCodomain) => {
+            case Type.Arrow(inheritDomain, inheritCodomain, true) => {
               if !(selfType <:< inheritDomain) then TypeNotMatch.raise {
                 s"Trait self type $selfType is not a subtype of inherited trait domain $inheritDomain"
               }
@@ -684,8 +683,8 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
                   s"Result term does not check against overridden codomain: $resultTerm : $overriddenCodomain"
                 }
 
-                val traitTerm = Term.Coercion(selfName, selfType, resultTerm)
-                val traitType = Type.Trait(selfType, overriddenCodomain)
+                val traitTerm = Term.Lambda(selfName, selfType, resultTerm, isCoe = true)
+                val traitType = Type.Arrow(selfType, overriddenCodomain, isTrait = true)
 
                 if implTypeOpt.exists(implType => !(overriddenCodomain <:< implType)) then TypeNotMatch.raise {
                   s"Trait codomain $overriddenCodomain does not implement declared interface ${implTypeOpt.get}"
@@ -705,12 +704,13 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           env.withValueVar(selfName, Term.Typed(Term.Var(selfName), selfType)) { implicit env =>
             val (bodyTerm: Term, bodyType: Type) = body.synthesize(using implTypeOpt)
             val traitCodomain = bodyType.normalize
-            val traitTerm = Term.Coercion(
+            val traitTerm = Term.Lambda(
               param = selfName,
               paramType = selfType,
               body = bodyTerm,
+              isCoe = true,
             )
-            val traitType = Type.Trait(selfType, traitCodomain)
+            val traitType = Type.Arrow(selfType, traitCodomain, isTrait = true)
             if implTypeOpt.exists(implType => !(bodyType <:< implType)) then TypeNotMatch.raise {
               s"Trait codomain $traitCodomain does not implement declared interface ${implTypeOpt.get}"
             } else if !traitTerm.check(traitType) then TypeNotMatch.raise {
@@ -734,13 +734,13 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       val (leftTerm, leftType) = left.synthesize
       val (_, rightType) = right.synthesize
       (leftType, rightType) match {
-        case (Type.Trait(leftDomain, leftCodomain), Type.Trait(rightDomain, rightCodomain)) => {
+        case (Type.Arrow(leftDomain, leftCodomain, true), Type.Arrow(rightDomain, rightCodomain, true)) => {
           // trait [self: A] { a } \ trait [self: B] { b }  ==  trait [self: A \ B] { a }
           val typeDiff = leftDomain.diff(rightDomain)
           // TODO: find out why we need to apply the leftTerm to self, instead of just leftTerm
           //  https://github.com/yzyzsun/CP-next/blob/1d19de29ff/src/CP/Typing.purs#L475
           val coeBody = Term.Typed(Term.Apply(leftTerm, Term.Var("self")), typeDiff)
-          (Term.Coercion("self", leftDomain, coeBody), Type.Trait(leftDomain, typeDiff))
+          (Term.Lambda("self", leftDomain, coeBody, true), Type.Arrow(leftDomain, typeDiff, true))
         }
         case _ => {
           val typeDiff = leftType.diff(rightType)

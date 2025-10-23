@@ -1,20 +1,22 @@
 package cp.syntax
 
+import cp.common.Environment
 import cp.core.*
+import cp.syntax.Definition.{TermDef, TypeDef}
 import cp.util.Graph
 
 case class RawModule(
-  terms: Map[String, ExprTerm],
-  types: Map[String, ExprType],
+  types: Map[String, Definition.TypeDef],
+  terms: Map[String, Definition.TermDef],
   submodules: Map[String, RawModule],
-  dependencies: Set[String] = Set.empty,
+  dependencies: Set[Namespace] = Set.empty,
 ) {
   private type Env = Environment[String, Type, Term]
   
   def synthesize(namespace: Namespace, compiledDependencies: Set[Dependency] = Set.empty): CoreModule = {
     
     // We should synthesize types first, so that terms can refer to them.
-    val sortedTypes = sortByDependency(types, (ty: ExprType, name: String) => ty.contains(name)) match {
+    val sortedTypes = sortByDependency(types, (defn: TypeDef, name: String) => defn.typ.contains(name)) match {
       case Some(sorted) => sorted
       case None => throw new RuntimeException("Cyclic dependency in type definitions")
     }
@@ -23,25 +25,30 @@ case class RawModule(
       (envAcc, dependency) => envAcc.merge(dependency.importEnvironment)
     }
 
-    val synthesizedTypes = sortedTypes.foldLeft(env) { case (envAcc, (name, exprType)) =>
-      val ty = exprType.synthesize(using envAcc)(using Set.empty).normalize(using envAcc)
-      envAcc.addTypeVar(name, ty)
+    val (synthTypes, typeEnv) = sortedTypes.foldLeft((Map.empty[String, Type], env)) { 
+      case ((types, envAcc), (name, typeDef)) => {
+        val ty = typeDef.typ.synthesize(using envAcc)(using Set.empty).normalize(using envAcc)
+        (types + (name -> ty), envAcc.addTypeVar(name, ty))
+      }
     }
 
-    val sortedTerms = sortByDependency(terms, (term: ExprTerm, name: String) => term.contains(name)) match {
+    val sortedTerms = sortByDependency(terms, (defn: TermDef, name: String) => defn.term.contains(name)) match {
       case Some(sorted) => sorted
       case None => throw new RuntimeException("Cyclic dependency in term definitions")
     }
     
-    val synthesizedTerms = sortedTerms.foldLeft(synthesizedTypes) { case (envAcc, (name, exprTerm)) =>
-      val (term, _) = exprTerm.synthesize(using envAcc)(using Set.empty)
-      envAcc.addValueVar(name, term)
+    val (synthTerms, _) = sortedTerms.foldLeft((Map.empty[String, Term], typeEnv)) { 
+      case ((terms, envAcc), (name, exprTerm)) => {
+        val (term, ty) = exprTerm.term.synthesize(using envAcc)(using Set.empty)
+        val symbol = Term.Symbol(namespace.qualified(name), ty.normalize(using envAcc))
+        (terms + (name -> symbol), envAcc.addValueVar(name, symbol))
+      }
     }
     
     val mainModule = CoreModule(
       namespace = namespace,
-      terms = synthesizedTerms.values.filter { case (name, _) => terms.contains(name) },
-      types = synthesizedTypes.types.filter { case (name, _) => types.contains(name) },
+      types = synthTypes,
+      terms = synthTerms,
       dependencies = compiledDependencies,
     )
     
@@ -58,6 +65,31 @@ case class RawModule(
       dependencies = compiledDependencies,
     )
   }
+
+//  extension (term: Term) {
+//    // Map module-level local symbols to a fully qualified name
+//    //  and inline all types from the environment
+//    def resolve(namespace: Namespace, terms: Map[String, Term])(using env: Env): Term = term match {
+//      case Term.Var(name) => {
+//        if env.values.contains(name) then term
+//        else terms.get(name) match {
+//          case Some(resolvedTerm) => Term.Symbol(namespace.qualified(name), resolvedTerm.infer)
+//          case None => throw new RuntimeException(s"Unresolved symbol: $name in namespace ${namespace}")
+//        }
+//      }
+//      case Term.Lambda(param, paramType, body, isCoe) => {
+//        // add param to env
+//        val newEnv = env.addValueVar(param, Term.Var(param))
+//        Term.Lambda(param, paramType.normalize, body.resolve(namespace, terms)(using newEnv), isCoe)
+//      }
+//      case Term.Fixpoint(name, annotatedType, body) => {
+//        // add name to env
+//        val newEnv = env.addValueVar(name, Term.Var(name))
+//        Term.Fixpoint(name, annotatedType.normalize, body.resolve(namespace, terms)(using newEnv))
+//      }
+//      case _ => term.normalizeTypes.mapSubterms(_.resolve(namespace))
+//    }
+//  }
   
   /**
    * Sort elements by their dependencies.
@@ -105,8 +137,8 @@ object RawModule {
     }
 
     RawModule(
-      terms = termDefs.map(defn => defn.name -> defn.term).toMap,
-      types = typeDefs.map(defn => defn.name -> defn.typeDef).toMap,
+      types = typeDefs.map(defn => defn.name -> defn).toMap,
+      terms = termDefs.map(defn => defn.name -> defn).toMap,
       submodules = submodDefs.map(defn => defn.name -> defn.module).toMap
     )
   }

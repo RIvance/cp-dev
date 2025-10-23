@@ -1,8 +1,9 @@
 package cp.prelude
 
+import cp.common.Environment
 import cp.core.PrimitiveType.*
 import cp.core.PrimitiveValue.*
-import cp.core.{Dependency, Environment, Module, Namespace, NativeCallable, NativeFunction, Term, Type}
+import cp.core.{Dependency, Module, Namespace, NativeCallable, NativeFunction, Term, Type}
 
 
 object Prelude extends Module with Dependency {
