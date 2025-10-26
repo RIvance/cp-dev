@@ -4,7 +4,7 @@ import cp.ast.{CpLexer, CpParser}
 import cp.common.Environment
 import cp.core.{EvalMode, Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
-import cp.runtime.Interpreter
+import cp.interpreter.{DirectInterpreter, Interpreter}
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.ExprTerm
@@ -125,7 +125,7 @@ trait TestExtension extends should.Matchers {
   
   protected def module[T](code: String)(f: Interpreter => T): Unit = {
     val module = synthModule(code)
-    val interpreter = Interpreter(Prelude, module)
+    val interpreter = DirectInterpreter(Prelude, module)
     f(interpreter)
   }
 }

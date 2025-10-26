@@ -4,7 +4,7 @@ import cp.cli.ReadEvalPrintLoop
 import cp.common.Environment
 import cp.core.{CoreModule, Dependency, EvalMode, Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
-import cp.runtime.Interpreter
+import cp.interpreter.TrampolineInterpreter
 import cp.parser.{ErrorListener, Statement, SyntaxError, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.{Definition, ExprTerm, ExprType}
@@ -27,7 +27,7 @@ private class ReplCore {
     def importModule(other: Module): Unit
   }
 
-  private lazy val interpreter = Interpreter(Prelude, module)
+  private lazy val interpreter = TrampolineInterpreter(Prelude, module)
 
   var module: ReplModule = new ReplModule {
     override val namespace: Namespace = Namespace("repl")

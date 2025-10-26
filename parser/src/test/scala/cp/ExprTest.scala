@@ -4,14 +4,14 @@ import cp.core.PrimitiveValue.*
 import cp.core.PrimitiveType.*
 import cp.core.{PrimitiveType, PrimitiveValue, Type}
 import cp.prelude.Prelude
-import cp.runtime.Interpreter
+import cp.interpreter.TrampolineInterpreter
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
-  given Interpreter = Interpreter(Prelude)
+  given TrampolineInterpreter = TrampolineInterpreter(Prelude)
   
   test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)

@@ -1,28 +1,12 @@
-package cp.runtime
+package cp.interpreter
 
 import cp.common.Environment
-import cp.core.{MergeBias, Module, Namespace, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
+import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
 
 import scala.util.control.TailCalls.{TailRec, done, tailcall}
 import scala.util.{Failure, Success, Try}
 
-class Interpreter(initialModules: Module*) {
-
-  private type Env = Environment[String, Type, Value]
-
-  private var modules: Map[Namespace, Module] = initialModules.map { mod => mod.namespace -> mod }.toMap
-
-  def loadModule(module: Module): Unit = {
-    modules += (module.namespace -> module)
-  }
-
-  implicit def globalEnvironment: Environment[String, Type, Term] = {
-    modules.values.foldLeft(Environment.empty[String, Type, Term]) { (envAcc, module) =>
-      envAcc.merge(module.importEnvironment)
-    }
-  }
-
-  def check(term: Term, expectedType: Type): Boolean = term.check(expectedType)
+class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initialModules*) {
 
   def eval(term: Term)(using env: Env = Environment.empty[String, Type, Value]): Value = term.evalTramp.result
 
