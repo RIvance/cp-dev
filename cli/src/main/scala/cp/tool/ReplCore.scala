@@ -1,8 +1,10 @@
 package cp.tool
 
 import cp.cli.ReadEvalPrintLoop
-import cp.core.{Environment, EvalMode, Term, Type}
+import cp.common.Environment
+import cp.core.{CoreModule, Dependency, EvalMode, Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
+import cp.runtime.Interpreter
 import cp.parser.{ErrorListener, Statement, SyntaxError, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.{Definition, ExprTerm, ExprType}
@@ -17,7 +19,33 @@ private class ReplCore {
   }
 
   private val visitor: Visitor = Visitor()
-  implicit var environment: Environment[String, Type, Term] = Prelude.environment
+  implicit var environment: Environment[String, Type, Value] = Environment.empty
+
+  trait ReplModule extends Module {
+    def addTerm(name: String, term: Term): Unit
+    def addType(name: String, ty: Type): Unit
+    def importModule(other: Module): Unit
+  }
+
+  private lazy val interpreter = Interpreter(Prelude, module)
+
+  var module: ReplModule = new ReplModule {
+    override val namespace: Namespace = Namespace("repl")
+    var types: Map[String, Type] = Map.empty
+    var terms: Map[String, Term] = Map.empty
+    var dependencies: Set[Dependency] = Set(Prelude)
+    var submodules: Map[String, CoreModule] = Map.empty
+    
+    override def addTerm(name: String, term: Term): Unit = terms += (name -> term)
+    override def addType(name: String, ty: Type): Unit = types += (name -> ty)
+    override def importModule(other: Module): Unit = {
+      interpreter.loadModule(other)
+      dependencies += other
+    }
+
+  }
+
+  private def moduleEnvironment: Environment[String, Type, Term] = module.importEnvironment
 
   def iterate(source: String): Unit = {
 
@@ -60,11 +88,11 @@ private class ReplCore {
       def iterateInput(input: Definition | Statement | ExprTerm | ExprType): Unit = input match {
         case defn: Definition => defn match {
           case Definition.TermDef(name, termExpr, constraints) => {
-            val (term: Term, ty: Type) = termExpr.synthesize
-            val evaluatedTerm = term.eval
+            val (term: Term, ty: Type) = termExpr.synthesize(using module.importEnvironment)
+            val evaluatedTerm = interpreter.eval(term)
             // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
             println()
-            environment = environment.addValueVar(name, evaluatedTerm)
+            module.addTerm(name, term)
           }
           case Definition.TypeDef(name, typeExpr, constraints) => {
             val ty: Type = typeExpr.synthesize
@@ -79,19 +107,21 @@ private class ReplCore {
         case stmt: Statement => stmt match {
           case Statement.Expression(expr) => iterateInput(expr.withSpan(stmt.span))
           case Statement.Let(name, valueExpr, tyExprOpt) => {
-            val (term: Term, ty: Type) = valueExpr.synthesize
-            val evaluatedTerm = term.eval
+            val termEnv = moduleEnvironment.merge(environment.mapValues { (_, v) => v.toTerm })
+            val (term: Term, ty: Type) = valueExpr.synthesize(using moduleEnvironment.merge(termEnv))
+            val evaluated = interpreter.eval(term)
             // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
             println()
-            environment = environment.addValueVar(name, evaluatedTerm)
+            environment = environment.addValueVar(name, evaluated)
           }
           case Statement.LetTupleDestruct(names, valueExpr) => ???
           case Statement.LetRecordDestruct(fields, valueExpr) => ???
           case Statement.RefAssign(referenceExpr, valueExpr) => ???
         }
         case expr: ExprTerm => {
-          val (term: Term, ty: Type) = expr.synthesize
-          println(s"  ${term.eval(using environment)(using EvalMode.Full)} : ${ty.normalize}\n")
+          val termEnv = moduleEnvironment.merge(environment.mapValues { (_, v) => v.toTerm })
+          val (term: Term, ty: Type) = expr.synthesize(using termEnv)
+          println(s"  ${interpreter.eval(term)(using environment)} : ${ty.normalize}\n")
         }
         case tyExpr: ExprType => try {
           val ty = tyExpr.synthesize
@@ -99,8 +129,9 @@ private class ReplCore {
         } catch {
           case _: Throwable => {
             // Failed to parse as type, try as expression
-            val (term, ty) = visitor.visitExpression(parser.singletonExpr.expression).synthesize
-            println(s"  ${term.eval(using environment)(using EvalMode.Full)} : ${ty.normalize}\n")
+            val termEnv = moduleEnvironment.merge(environment.mapValues { (_, v) => v.toTerm })
+            val (term, ty) = visitor.visitExpression(parser.singletonExpr.expression).synthesize(using termEnv)
+            println(s"  ${interpreter.eval(term)(using environment)} : ${ty.normalize}\n")
           }
         }
       }

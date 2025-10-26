@@ -9,42 +9,42 @@ import org.scalatest.matchers.should
 
 class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
 
-  test("synth term definition id 1") {
+  test("term definition id 1") {
     module("""
       def id = Λ A . fun (x: A) -> x;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
 
-  test("synth term definition id 2") {
+  test("term definition id 2") {
     module("""
         // Another style of definition
         def id[A](x: A) = x;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "id[Int](42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
 
-  test("synth fibonacci") {
+  test("fibonacci") {
     module("""
       def fib(n: Int): Int =
         if n <= 1 then n
         else fib(n - 1) + fib(n - 2);
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "fib(10)" >>> (IntValue(55).toTerm, IntType.toType)
     }
   }
 
-  test("synth simple type alias") {
+  test("simple type alias") {
     module("""
       type Integer = Int;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "(1 + 2 : Integer)" >>> (IntValue(3).toTerm, IntType.toType)
     }
   }
 
-  test("synth simple record type") {
+  test("simple record type") {
     module("""
       type Point = { x: Int; y: Int };
 
@@ -52,7 +52,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
 
       def move(p: Point, dx: Int, dy: Int): Point =
         { x = p.x + dx; y = p.y + dy };
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "move(origin, 3, 4)" >>> (
         Term.Record(Map(
           "x" -> IntValue(3).toTerm,
@@ -66,27 +66,27 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
 
-  test("synth simple type with type parameter") {
+  test("simple type with type parameter") {
     module("""
       type Box[A] = { value: A };
       def box[A](x: A): Box[A] = { value = x };
       def unbox[A](b: Box[A]): A = b.value;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "unbox[Int](box[Int] 42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
 
-  test("synth type definition indexed") {
+  test("type definition indexed") {
     module("""
       type Box[A] = ∀R . ((A -> R) -> R);
       def box[A](x: A): Box[A] = ΛR . fun (f: A -> R) -> f(x);
       def unbox[A](b: Box[A]): A = b[A](fun (x: A) -> x);
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "unbox[Int](box[Int] 42)" >>> (IntValue(42).toTerm, IntType.toType)
     }
   }
 
-  test("synth type definition pair") {
+  test("type definition pair") {
     module("""
       type Pair[A, B] = ∀R . ((A -> B -> R) -> R);
 
@@ -98,29 +98,29 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
 
       def snd[A, B](p: Pair[A, B]): B =
         p[B](fun (x: A, y: B) -> y);
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "fst[Int, String](pair[Int, String](42, \"Hello\"))" >>> (IntValue(42).toTerm, IntType.toType)
       "snd[Int, String](pair[Int, String](42, \"Hello\"))" >>> (StringValue("Hello").toTerm, StringType.toType)
       "let x = pair[Int, String](114514, \"good!\") in fst[Int, String] x" >>> (IntValue(114514).toTerm, IntType.toType)
     }
   }
   
-  test("synth merge overloading") {
+  test("merge overloading") {
     module("""
       def doubleInt(value: Int): Int = value * 2;
       def doubleString(value: String): String = value ++ value;
       def double = doubleInt ,, doubleString;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "double(21)" >>> (IntValue(42).toTerm, IntType.toType)
       "double(\"ha\")" >>> (StringValue("haha").toTerm, StringType.toType)
     }
   }
   
-  test("synth merge") {
+  test("merge") {
     module("""
       def double(value: Int) = value * 2;
       def isHello(str: String) = if str == "hello" then true else false;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "(double ,, isHello) 42" >>> (IntValue(84).toTerm, IntType.toType)
       "(double ,, isHello) \"hello\"" >>> (BoolValue(true).toTerm, BoolType.toType)
       "(double ,, isHello) \"world\"" >>> (BoolValue(false).toTerm, BoolType.toType)
@@ -131,10 +131,10 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
 
-  test("synth coercion") {
+  test("coercion") {
     module("""
       f (x: Int) = true ,, x;
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "(f : Bool & Int -> Bool & Int) (false ,, 42)" >>> (
         Term.Merge(Term.Primitive(BoolValue(true)), Term.Primitive(IntValue(42))),
         Type.Intersection(BoolType.toType, IntType.toType)
@@ -142,7 +142,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
   
-  test("synth trait") {
+  test("trait") {
     module("""
       type Editor = {
         onKey: String -> String;
@@ -159,7 +159,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       };
       
       version = trait => { version = "0.1" };
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "(new editor ,, version).showHelp" >>> (
         StringValue("Version 0.1: usage...").toTerm,
         StringType.toType
@@ -167,7 +167,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
 
-  test("synth trait mutual recursion") {
+  test("trait mutual recursion") {
     module("""
       type Even = { isEven : Int -> Bool };
       type Odd = { isOdd : Int -> Bool };
@@ -179,7 +179,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       def odd = trait [self: Even] implements Odd => {
         isOdd (n : Int) = if n == 0 then false else self.isEven(n - 1)
       };
-    """) { implicit env =>
+    """) { implicit interpreter =>
       "(new even ,, odd).isEven(42)" >>> (BoolValue(true).toTerm, BoolType.toType)
       "(new even ,, odd).isOdd(42)" >>> (BoolValue(false).toTerm, BoolType.toType)
       "(new even ,, odd).isEven(41)" >>> (BoolValue(false).toTerm, BoolType.toType)
@@ -187,7 +187,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
     }
   }
 
-  test("synth trait with sort") {
+  test("trait with sort") {
     module("""
       type Eval = { eval : Int };
       type Print = { print : String };
@@ -226,7 +226,7 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       def expMul[Exp] = trait [self : MulSig<Exp>] inherits expAdd[Exp] => {
         override exp = open self in Mul(super.exp, Lit 4);
       };
-    """) { implicit env =>
+    """) { implicit interpreter =>
       """
         let e = new evalMul ,, printMul ,, expMul[Eval & Print] in
         e.exp.print ++ " is " ++ e.exp.eval.toString

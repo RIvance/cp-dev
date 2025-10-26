@@ -1,5 +1,7 @@
 package cp.core
 
+import cp.common.Environment
+
 trait Dependency {
   def namespace: Namespace
   def types: Map[String, Type]
@@ -26,8 +28,8 @@ trait Dependency {
 trait Module extends Dependency {
 
   def terms: Map[String, Term]
-  def submodules: Map[String, CoreModule] = Map.empty
-  def dependencies: Set[Dependency] = Set.empty
+  def submodules: Map[String, CoreModule]
+  def dependencies: Set[Dependency]
 
   def accessibleSymbols: Map[FullyQualifiedName, Type] = {
     qualifiedSymbols ++ submodules.flatMap {

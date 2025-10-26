@@ -1,7 +1,6 @@
 package cp.intermediate.calculus
 
-import cp.common.Environment
-import cp.core.PrimitiveValue
+import cp.core.{Environment, PrimitiveValue}
 import cp.intermediate.{Prototype, TypeEnv, TypeValue as Type}
 import cp.util.IdentifiedByIndex
 

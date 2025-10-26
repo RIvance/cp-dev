@@ -28,6 +28,7 @@ enum PrimitiveValue {
   }
   
   def toTerm: Term = Term.Primitive(this)
+  def toValue: Value = Value.Primitive(this)
 }
 
 object PrimitiveValue {

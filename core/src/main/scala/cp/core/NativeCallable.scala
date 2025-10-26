@@ -1,19 +1,12 @@
 package cp.core
 
+import cp.common.{CallablePrototype, Environment}
 import cp.error.CoreErrorKind
 import cp.error.CoreErrorKind.*
 
-trait NativeCallable {
-  def returnType: Type
-  def paramTypes: Seq[Type]
-  def arity: Int = paramTypes.length
-  def call(args: Seq[Term])(using env: NativeCallable.Env): Term
-}
-
+trait NativeCallable extends CallablePrototype[String, Type, Value]
 object NativeCallable {
-
-  type Env = Environment[String, Type, Term]
-
+  type Env = Environment[String, Type, Value]
   enum Kind {
     case Default
     case Operator(symbol: String)
@@ -24,9 +17,9 @@ object NativeCallable {
 private sealed abstract class NativeCallableBase (
   override val returnType: Type,
   override val paramTypes: Seq[Type],
-  val implementation: Seq[Term] => Term,
+  val implementation: Seq[Value] => Value,
 ) extends NativeCallable {
-  override def call(args: Seq[Term])(using env: NativeCallable.Env): Term = {
+  override def call(args: Seq[Value])(using env: NativeCallable.Env): Value = {
     if args.length != paramTypes.length then {
       throw new IllegalArgumentException(s"Expected ${paramTypes.length} arguments, got ${args.length}")
     }
@@ -35,7 +28,12 @@ private sealed abstract class NativeCallableBase (
       val inferredType = arg.infer
       if !(inferredType <:< ty) then TypeNotMatch.raise {
         s"Expected argument of type $ty, got $inferredType"
-      } else arg.filter(ty)
+      } else arg.cast(ty) match {
+        case Some(castedArg) => castedArg
+        case None => TypeCastError.raise {
+          s"Failed to cast argument of type $inferredType to $ty"
+        }
+      }
     }
     implementation(filteredArgs)
   }
@@ -44,10 +42,12 @@ private sealed abstract class NativeCallableBase (
 class NativeFunction(
   returnType: Type,
   paramTypes: Seq[Type],
-  implementation: Seq[Term] => Term,
+  implementation: Seq[Value] => Value,
   val kind: NativeCallable.Kind = NativeCallable.Kind.Default,
 ) extends NativeCallableBase(returnType, paramTypes, implementation) {
   def toTerm: Term = Term.NativeFunctionCall(this, Seq.empty[Term])
+  override def isPure: Boolean = true
+  override def name: String = toString
   override def toString: String = kind match {
     case NativeCallable.Kind.Operator(symbol) => symbol
     case NativeCallable.Kind.Function(name) => name
@@ -56,7 +56,10 @@ class NativeFunction(
 }
 
 class NativeProcedure(
+  override val name: String,
   returnType: Type,
   paramTypes: Seq[Type],
-  implementation: Seq[Term] => Term,
-) extends NativeCallableBase(returnType, paramTypes, implementation)
+  implementation: Seq[Value] => Value,
+) extends NativeCallableBase(returnType, paramTypes, implementation) {
+  override def isPure: Boolean = false
+}

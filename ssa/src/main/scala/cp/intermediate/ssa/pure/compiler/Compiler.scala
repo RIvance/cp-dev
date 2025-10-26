@@ -1,6 +1,6 @@
 package cp.intermediate.ssa.pure.compiler
 
-import cp.common.Environment
+import cp.core.Environment
 import cp.intermediate.{BuiltInFunction, NativePrototype, NativePrototypePure, TypeValue as Type}
 import cp.intermediate.calculus.RcTerm as Term
 import cp.intermediate.ssa.pure.{Block, Function, Instruction, Program, SSAConstruct, Value}

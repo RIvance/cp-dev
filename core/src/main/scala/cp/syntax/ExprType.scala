@@ -1,6 +1,7 @@
 package cp.syntax
 
-import cp.core.{Constraint, PrimitiveType, Type, TypeEnvironment, synthesize, verify}
+import cp.common.TypeEnvironment
+import cp.core.{Constraint, PrimitiveType, Type, synthesize, verify}
 import cp.error.{CoreError, SpannedError, UnknownError}
 import cp.error.CoreErrorKind.*
 import cp.util.{OptionalSpanned, IdentifiedByString, SourceSpan}
@@ -112,7 +113,7 @@ enum ExprType extends OptionalSpanned[ExprType] with IdentifiedByString {
       }
 
       case Trait(inType, outType) => {
-        Type.Trait(inType.map(_.synthesize).getOrElse(Type.top), outType.synthesize)
+        Type.Arrow(inType.map(_.synthesize).getOrElse(Type.top), outType.synthesize, isTrait = true)
       }
 
       case SortApply(ty, sort) => {

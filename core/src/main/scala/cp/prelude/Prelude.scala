@@ -1,8 +1,9 @@
 package cp.prelude
 
+import cp.common.Environment
 import cp.core.PrimitiveType.*
 import cp.core.PrimitiveValue.*
-import cp.core.{Dependency, Environment, Module, Namespace, NativeCallable, NativeFunction, Term, Type}
+import cp.core.{CoreModule, Dependency, Module, Namespace, NativeCallable, NativeFunction, Term, Type, Value}
 
 
 object Prelude extends Module with Dependency {
@@ -42,6 +43,10 @@ object Prelude extends Module with Dependency {
   override def types: Map[String, Type] = Map.empty
 
   override def namespace: Namespace = Namespace(List.empty)
+
+  override def dependencies: Set[Dependency] = Set.empty
+
+  override def submodules: Map[String, CoreModule] = Map.empty
 }
 
 object PreludeNativeImplementations {
@@ -51,8 +56,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("+"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        IntValue(a + b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        IntValue(a + b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `+`: $args")
     }
@@ -63,8 +68,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("+"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        FloatValue(a + b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        FloatValue(a + b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `+`: $args")
     }
@@ -75,8 +80,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("-"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        IntValue(a - b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        IntValue(a - b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `-`: $args")
     }
@@ -87,8 +92,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("-"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        FloatValue(a - b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        FloatValue(a - b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `-`: $args")
     }
@@ -99,8 +104,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("*"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        IntValue(a * b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        IntValue(a * b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `*`: $args")
     }
@@ -111,8 +116,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("*"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        FloatValue(a * b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        FloatValue(a * b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `*`: $args")
     }
@@ -123,8 +128,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(StringType.toType, StringType.toType),
     kind = NativeCallable.Kind.Operator("++"),
     implementation = {
-      case Seq(Term.Primitive(StringValue(a)), Term.Primitive(StringValue(b))) =>
-        StringValue(a + b).toTerm
+      case Seq(Value.Primitive(StringValue(a)), Value.Primitive(StringValue(b))) =>
+        StringValue(a + b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `++`: $args")
     }
@@ -135,8 +140,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("=="),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        BoolValue(a == b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        BoolValue(a == b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
     }
@@ -147,8 +152,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("=="),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        BoolValue(a == b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        BoolValue(a == b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
     }
@@ -159,8 +164,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(StringType.toType, StringType.toType),
     kind = NativeCallable.Kind.Operator("=="),
     implementation = {
-      case Seq(Term.Primitive(StringValue(a)), Term.Primitive(StringValue(b))) =>
-        BoolValue(a == b).toTerm
+      case Seq(Value.Primitive(StringValue(a)), Value.Primitive(StringValue(b))) =>
+        BoolValue(a == b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `==`: $args")
     }
@@ -171,8 +176,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(BoolType.toType, BoolType.toType),
     kind = NativeCallable.Kind.Operator("&&"),
     implementation = {
-      case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
-        BoolValue(a && b).toTerm
+      case Seq(Value.Primitive(BoolValue(a)), Value.Primitive(BoolValue(b))) =>
+        BoolValue(a && b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `&&`: $args")
     }
@@ -183,8 +188,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(BoolType.toType, BoolType.toType),
     kind = NativeCallable.Kind.Operator("||"),
     implementation = {
-      case Seq(Term.Primitive(BoolValue(a)), Term.Primitive(BoolValue(b))) =>
-        BoolValue(a || b).toTerm
+      case Seq(Value.Primitive(BoolValue(a)), Value.Primitive(BoolValue(b))) =>
+        BoolValue(a || b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `||`: $args")
     }
@@ -195,8 +200,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(BoolType.toType),
     kind = NativeCallable.Kind.Operator("!"),
     implementation = {
-      case Seq(Term.Primitive(BoolValue(a))) =>
-        BoolValue(!a).toTerm
+      case Seq(Value.Primitive(BoolValue(a))) =>
+        BoolValue(!a).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `!`: $args")
     }
@@ -207,8 +212,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("<"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        BoolValue(a < b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        BoolValue(a < b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `<`: $args")
     }
@@ -219,8 +224,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("<"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        BoolValue(a < b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        BoolValue(a < b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `<`: $args")
     }
@@ -231,8 +236,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator("<="),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        BoolValue(a <= b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        BoolValue(a <= b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `<=`: $args")
     }
@@ -243,8 +248,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator("<="),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        BoolValue(a <= b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        BoolValue(a <= b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `<=`: $args")
     }
@@ -255,8 +260,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator(">"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        BoolValue(a > b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        BoolValue(a > b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `>`: $args")
     }
@@ -267,8 +272,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator(">"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        BoolValue(a > b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        BoolValue(a > b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `>`: $args")
     }
@@ -279,8 +284,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType, IntType.toType),
     kind = NativeCallable.Kind.Operator(">="),
     implementation = {
-      case Seq(Term.Primitive(IntValue(a)), Term.Primitive(IntValue(b))) =>
-        BoolValue(a >= b).toTerm
+      case Seq(Value.Primitive(IntValue(a)), Value.Primitive(IntValue(b))) =>
+        BoolValue(a >= b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `>=`: $args")
     }
@@ -291,8 +296,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType, FloatType.toType),
     kind = NativeCallable.Kind.Operator(">="),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(a)), Term.Primitive(FloatValue(b))) =>
-        BoolValue(a >= b).toTerm
+      case Seq(Value.Primitive(FloatValue(a)), Value.Primitive(FloatValue(b))) =>
+        BoolValue(a >= b).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments for `>=`: $args")
     }
@@ -305,8 +310,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(StringType.toType),
     kind = NativeCallable.Kind.Function("length"),
     implementation = {
-      case Seq(Term.Primitive(StringValue(s))) =>
-        IntValue(s.length).toTerm
+      case Seq(Value.Primitive(StringValue(s))) =>
+        IntValue(s.length).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments: $args")
     }
@@ -317,8 +322,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(IntType.toType),
     kind = NativeCallable.Kind.Function("toString"),
     implementation = {
-      case Seq(Term.Primitive(IntValue(i))) =>
-        StringValue(i.toString).toTerm
+      case Seq(Value.Primitive(IntValue(i))) =>
+        StringValue(i.toString).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments: $args")
     }
@@ -329,8 +334,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(FloatType.toType),
     kind = NativeCallable.Kind.Function("toString"),
     implementation = {
-      case Seq(Term.Primitive(FloatValue(f))) =>
-        StringValue(f.toString).toTerm
+      case Seq(Value.Primitive(FloatValue(f))) =>
+        StringValue(f.toString).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments: $args")
     }
@@ -341,8 +346,8 @@ object PreludeNativeImplementations {
     paramTypes = Seq(BoolType.toType),
     kind = NativeCallable.Kind.Function("toString"),
     implementation = {
-      case Seq(Term.Primitive(BoolValue(b))) =>
-        StringValue(b.toString).toTerm
+      case Seq(Value.Primitive(BoolValue(b))) =>
+        StringValue(b.toString).toValue
       case args =>
         throw new IllegalArgumentException(s"Invalid arguments: $args")
     }

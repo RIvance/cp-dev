@@ -1,7 +1,6 @@
 package cp.intermediate.calculus.compiler
 
-import cp.common.Environment
-import cp.core.{Module as CpModule, Term as CpTerm, Type as CpType}
+import cp.core.{Environment, Module as CpModule, Term as CpTerm, Type as CpType}
 import cp.intermediate.calculus.{RcFunction, RcTerm}
 import cp.intermediate.TypeValue as RcType
 

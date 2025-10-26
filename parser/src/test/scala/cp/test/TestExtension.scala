@@ -1,8 +1,10 @@
 package cp.test
 
 import cp.ast.{CpLexer, CpParser}
-import cp.core.{Environment, EvalMode, Module, Namespace, Term, Type}
+import cp.common.Environment
+import cp.core.{EvalMode, Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
+import cp.runtime.Interpreter
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.ExprTerm
@@ -11,11 +13,12 @@ import org.antlr.v4.runtime.{CharStreams, CommonTokenStream}
 import org.scalatest.matchers.should
 
 trait TestExtension extends should.Matchers {
+
+  protected type ValueEnv = Environment[String, Type, Value]
+  protected type TermEnv = Environment[String, Type, Term]
   
-  protected type Env = Environment[String, Type, Term]
-  
-  extension (term: Term) def fullEval(using env: Env): Term = {
-    term.eval(using env)(using EvalMode.Full)
+  extension (term: Term) def fullEval(using interpreter: Interpreter): Term = {
+    interpreter.eval(term).toTerm
   }
 
   protected def parseExprTerm(code: String): ExprTerm = {
@@ -33,11 +36,11 @@ trait TestExtension extends should.Matchers {
     }
   }
 
-  protected def synthExpr(code: String)(
-    using env: Env = Prelude.environment
-  ): (Term, Type) = catchError(code.strip) { _ => 
-    val (term, ty) = parseExprTerm(code).synthesize(using env)
-    (term.eval, ty.normalize)
+  protected def evalExpr(code: String)(using interpreter: Interpreter): (Value, Type) = {
+    catchError(code.strip) { _ =>
+      val (term, ty) = parseExprTerm(code).synthesize(using interpreter.globalEnvironment.merge(Prelude.environment))
+      (interpreter.eval(term), ty.normalize)
+    }
   }
   
   protected def synthModule(code: String): Module = catchError(code.strip) { listener =>
@@ -51,7 +54,7 @@ trait TestExtension extends should.Matchers {
     parser.addErrorListener(listener)
 
     val rawModule = Visitor().visitModule(parser.module())
-    rawModule.synthesize(Namespace("test"), Set(Prelude))
+    rawModule.synthesize(Namespace(List()), Set(Prelude))
   }
 
   protected def printSourceWithHighlight(source: String, span: SourceSpan, info: String): Unit = {
@@ -100,26 +103,29 @@ trait TestExtension extends should.Matchers {
   
   extension (expr: String) {
     
-    protected infix def >>> (expected: (Term, Type))(using env: Env): Any = {
-      val (term, ty) = synthExpr(expr)
-      term.fullEval should be (expected._1)
+    protected infix def >>> (expected: (Term, Type))(using interpreter: Interpreter): Any = {
+      val (value, ty) = evalExpr(expr)
+      value.toTerm should be (expected._1)
       ty.normalize should be (expected._2)
     }
     
-    protected infix def >>> (expected: Term)(using env: Env): Any = {
-      val (term, _) = synthExpr(expr)
-      term.fullEval should be (expected)
+    protected infix def >>> (expected: Term)(using interpreter: Interpreter): Any = {
+      val (value, _) = evalExpr(expr)
+      value.toTerm should be (expected)
     }
     
-    protected infix def >>: (expected: Type)(using env: Env): Any = {
-      val (term, ty) = synthExpr(expr)
-      if !term.fullEval.check(expected) then {
+    protected infix def >>: (expected: Type)(using interpreter: Interpreter): Any = {
+      val (value, ty) = evalExpr(expr)
+      val term = value.toTerm
+      if !interpreter.check(term, expected) then {
         fail(s"Term ($term : ${ty.normalize}) does not check against expected type $expected")
       }
     }
   }
   
-  protected def module[T](code: String)(f: Env => T): Unit = {
-    f(Prelude.environment.merge(synthModule(code).unfoldEnvironment))
+  protected def module[T](code: String)(f: Interpreter => T): Unit = {
+    val module = synthModule(code)
+    val interpreter = Interpreter(Prelude, module)
+    f(interpreter)
   }
 }

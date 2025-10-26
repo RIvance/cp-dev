@@ -2,23 +2,19 @@ package cp
 
 import cp.core.PrimitiveValue.*
 import cp.core.PrimitiveType.*
-import cp.core.{PrimitiveValue, PrimitiveType, Type}
+import cp.core.{PrimitiveType, PrimitiveValue, Type}
 import cp.prelude.Prelude
+import cp.runtime.Interpreter
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
-  given Env = Prelude.environment
+  given Interpreter = Interpreter(Prelude)
   
   test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)
-  }
-  
-  test("term in environment") {
-    given env: Env = Prelude.environment.addValueVar("x", IntValue(42).toTerm)
-    "x" >>> (IntValue(42).toTerm, IntType.toType)
   }
   
   test("add two integers") {
