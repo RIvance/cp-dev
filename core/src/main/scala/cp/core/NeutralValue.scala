@@ -8,14 +8,21 @@ enum NeutralValue extends IdentifiedByString {
   case Apply(func: NeutralValue, arg: Value)
   case Project(record: NeutralValue, field: String)
   case Merge(left: Value, right: Value)
+  case Annotated(value: NeutralValue, annotatedType: Type)
   case NativeCall(function: NativeCallable, args: List[Value])
+  // Represents a fixpoint thunk that may cause infinite unfolding
+  case UnfoldingThunk(env: ValueEnv, annotatedType: Type, name: String, body: Term)
 
   override def contains(name: String): Boolean = this match {
     case NeutralValue.Var(n) => n == name
     case NeutralValue.Apply(func, arg) => func.contains(name) || arg.contains(name)
     case NeutralValue.Project(record, field) => record.contains(name)
     case NeutralValue.Merge(left, right) => left.contains(name) || right.contains(name)
+    case NeutralValue.Annotated(value, annotatedType) => value.contains(name)
     case NeutralValue.NativeCall(_, args) => args.exists(_.contains(name))
+    case NeutralValue.UnfoldingThunk(env, _, n, body) => {
+      n != name && env.values.values.exists(_.contains(name)) || body.contains(name)
+    }
   }
 
   // Convert neutral value back to term representation
@@ -24,7 +31,9 @@ enum NeutralValue extends IdentifiedByString {
     case NeutralValue.Apply(func, arg) => Term.Apply(func.toTerm, arg.toTerm)
     case NeutralValue.Project(record, field) => Term.Projection(record.toTerm, field)
     case NeutralValue.Merge(left, right) => Term.Merge(left.toTerm, right.toTerm, MergeBias.Neutral)
+    case NeutralValue.Annotated(value, annotatedType) => Term.Annotated(value.toTerm, annotatedType)
     case NeutralValue.NativeCall(function, args) => Term.NativeFunctionCall(function.asInstanceOf[NativeFunction], args.map(_.toTerm))
+    case NeutralValue.UnfoldingThunk(_, ty, name, body) => Term.Fixpoint(name, ty, body)
   }
 
   def infer(using env: ValueEnv): Type = this match {
@@ -44,6 +53,7 @@ enum NeutralValue extends IdentifiedByString {
       case other => throw new RuntimeException(s"Attempted to project a field from a non-record type: $other")
     }
     case NeutralValue.Merge(left, right) => Type.Intersection(left.infer, right.infer)
+    case NeutralValue.Annotated(_, annotatedType) => annotatedType
     case NeutralValue.NativeCall(function, args) => {
       val remainingParams = function.paramTypes.drop(args.length)
       if remainingParams.isEmpty then {
@@ -56,5 +66,6 @@ enum NeutralValue extends IdentifiedByString {
         }
       }
     }
+    case NeutralValue.UnfoldingThunk(_, annotatedType, _, _) => annotatedType
   }
 }

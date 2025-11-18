@@ -180,6 +180,10 @@ enum Value extends IdentifiedByString {
         }
       }.map(Tuple.apply)
 
+    case (Value.Neutral(nv), _) =>
+      // For neutral values, we cannot determine compatibility here, just return a neutral cast
+      Some(Value.Neutral(NeutralValue.Annotated(nv, targetType)))
+
     // Default case - incompatible cast
     case _ => None
   }

@@ -2,16 +2,16 @@ package cp
 
 import cp.core.PrimitiveValue.*
 import cp.core.PrimitiveType.*
-import cp.core.{PrimitiveType, PrimitiveValue, Type}
+import cp.core.{PrimitiveType, PrimitiveValue, Term, Type}
 import cp.prelude.Prelude
-import cp.interpreter.TrampolineInterpreter
+import cp.interpreter.{DirectInterpreter, Interpreter, TrampolineInterpreter}
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
   
-  given TrampolineInterpreter = TrampolineInterpreter(Prelude)
+  given Interpreter = DirectInterpreter(Prelude)
   
   test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)
@@ -73,6 +73,26 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
     "(114.toString ++ 514.toString).length" >>> (
       PrimitiveValue.IntValue(6).toTerm,
       PrimitiveType.IntType.toType
+    )
+  }
+
+  test("non-arrow type fixpoint should be unfolded") {
+    "fix a: Int. (((x: Int) -> 0) a)" >>> (
+      IntValue(0).toTerm,
+      PrimitiveType.IntType.toType
+    )
+  }
+
+  test("trait unfolding") {
+    "new trait [self : { a: Int; b: Int }] => { a = 42; b = self.a }" >>> (
+      Term.Record(Map(
+        "a" -> IntValue(42).toTerm,
+        "b" -> IntValue(42).toTerm
+      )),
+      Type.Record(Map(
+        "a" -> IntType.toType,
+        "b" -> IntType.toType
+      ))
     )
   }
 }

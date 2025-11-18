@@ -9,17 +9,16 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
 
   def eval(term: Term)(using env: Env = Environment.empty[String, Type, Value]): Value = term.evalDirect
 
+  private enum Unfolding {
+    case Normal
+    case Suspend(suspended: Set[Value.FixThunk])
+  }
+
   extension (term: Term) {
 
-    private def evalDirect(using env: Env): Value = term match {
+    private def evalDirect(using env: Env, unfolding: Unfolding = Unfolding.Normal): Value = term match {
 
       case Term.Var(name) => env.getValue(name) match {
-        case Some(fix @ Value.FixThunk(captured, annotatedType, name, body)) =>
-          // When a FixThunk is looked up, evaluate its body in the captured environment
-          //  and since we cannot have self-reference when building the captured env,
-          //  we now put the thunk itself for self-reference
-          val unfoldedEnv = captured.addValueVar(name, fix)
-          body.evalDirect(using unfoldedEnv)
         case Some(value) => value
         case None => throw new RuntimeException(s"Variable $name not found in environment")
       }
@@ -48,6 +47,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         lazy val newEnv = env.addValueVar(name, fixThunk)
         // Fixpoint itself will be added to the environment when evaluating the thunk
         lazy val fixThunk: Value = Value.FixThunk(env, annotatedType.normalize, name, body)
+        // Unfold once
         body.evalDirect(using newEnv)
       }
 
@@ -102,20 +102,11 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
               }
             }
             case Value.Neutral(nv) => Value.Neutral(NeutralValue.Project(nv, field))
-            case fixThunk: Value.FixThunk => {
-              // Try projecting from the fixpoint body term directly
-              val projectionTerm = Term.Projection(
-                Term.Annotated(
-                  Term.Apply(
-                    Term.Lambda(fixThunk.name, fixThunk.annotatedType, fixThunk.body),
-                    Term.Fixpoint(fixThunk.name, fixThunk.annotatedType, fixThunk.body)
-                  ),
-                  fixThunk.annotatedType
-                ),
-                field
-              )
-              val newEnv = fixThunk.env.addValueVar(fixThunk.name, fixThunk)
-              projectionTerm.evalDirect(using newEnv)
+            case Value.FixThunk(env, annotatedType, name, body) => {
+              // Evaluate the fix thunk first
+              val fixNeutral = Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
+              val fixValue = body.evalDirect(using env.addValueVar(name, fixNeutral))
+              projectFromValue(fixValue)
             }
             case _ => throw new RuntimeException(s"Cannot project from non-record value: $value")
           }
@@ -284,8 +275,16 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
           // Extend the closure environment with the argument
           val extendedEnv = closureEnv.addValueVar(param, arg)
           // Evaluate the body in the extended environment
-          Try { body.evalDirect(using extendedEnv) }.toOption
+          Some(body.evalDirect(using extendedEnv))
         } else None
+      }
+
+      case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
+        // Create a new environment that includes the fixpoint itself
+        val newEnv = fixEnv.addValueVar(name, fixThunk)
+        // Evaluate the body in the new environment
+        val fn = body.evalDirect(using newEnv)
+        fn.applyTo(arg)(using env)
       }
 
       case Value.Neutral(func @ NeutralValue.NativeCall(function, args)) => {
