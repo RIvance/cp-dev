@@ -4,7 +4,22 @@ import cp.common.{CallablePrototype, Environment}
 import cp.error.CoreErrorKind
 import cp.error.CoreErrorKind.*
 
-trait NativeCallable extends CallablePrototype[String, Type, Value]
+trait NativeCallable extends CallablePrototype[String, Type, Value] {
+  def toStringWithArgs(args: Seq[Value]): String = {
+    if this.name.forall(_.isUnicodeIdentifierStart) then {
+      s"${this.name}(${args.map(_.toString).mkString(", ")})"
+    } else {
+      if args.length == 2 then {
+        s"(${args.head.toString} ${this.name} ${args(1).toString})"
+      } else if args.length == 1 then {
+        s"(${this.name}${args.head.toString})"
+      } else {
+        s"${this.name}(${args.map(_.toString).mkString(", ")})"
+      }
+    }
+  }
+}
+
 object NativeCallable {
   type Env = Environment[String, Type, Value]
   enum Kind {

@@ -3,20 +3,15 @@ package cp.interpreter
 import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
 
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModules*) {
 
   def eval(term: Term)(using env: Env = Environment.empty[String, Type, Value]): Value = term.evalDirect
 
-  private enum Unfolding {
-    case Normal
-    case Suspend(suspended: Set[Value.FixThunk])
-  }
-
   extension (term: Term) {
 
-    private def evalDirect(using env: Env, unfolding: Unfolding = Unfolding.Normal): Value = term match {
+    private def evalDirect(using env: Env): Value = term match {
 
       case Term.Var(name) => env.getValue(name) match {
         case Some(value) => value
@@ -52,67 +47,36 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
       }
 
       case Term.Record(fields) => {
-        val evaluatedFields = fields.map { case (name, term) =>
-          name -> term.evalDirect
-        }
+        val evaluatedFields = fields.map { case (name, term) => name -> term.evalDirect }
         Value.Record(evaluatedFields)
       }
 
-      case Term.Projection(recordTerm, field) => recordTerm match {
-        // Special case: projection from a merge term - distribute the projection
-        case Term.Merge(leftTerm, rightTerm, _) => {
-          // Try projecting from both sides first, and if both fail, evaluate normally
-          val leftProjection  = Try { Term.Projection(leftTerm , field).evalDirect }
-          val rightProjection = Try { Term.Projection(rightTerm, field).evalDirect }
-
-          (leftProjection, rightProjection) match {
-            case (Success(leftResult), Success(rightResult)) => leftResult.merge(rightResult)
-            case (Success(leftResult), _) => leftResult
-            case (_, Success(rightResult)) => rightResult
-            case _ => {
-              // Both failed, evaluate normally
-              val mergedValue = recordTerm.evalDirect
-              mergedValue match {
-                case Value.Record(fields) => fields.get(field) match {
-                  case Some(value) => value
-                  case None => throw new RuntimeException(s"Field $field not found in record $mergedValue")
-                }
-                case Value.Neutral(nv) => Value.Neutral(NeutralValue.Project(nv, field))
-                case _ => throw new RuntimeException(s"Cannot project from non-record value $recordTerm")
-              }
+      case Term.Projection(recordTerm, field) => {
+        def projectFromValue(value: Value): Option[Value] = value match {
+          case Value.Record(fields) => fields.get(field)
+          case Value.Neutral(NeutralValue.Merge(left, right)) => {
+            // Try to project from merge - try left and right and merge results if both succeed
+            (projectFromValue(left), projectFromValue(right)) match {
+              case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult))
+              case (Some(leftResult), None) => Some(leftResult)
+              case (None, Some(rightResult)) => Some(rightResult)
+              case (None, None) => None
             }
           }
+          case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Project(nv, field)))
+          case Value.FixThunk(env, annotatedType, name, body) => {
+            // Evaluate the fix thunk first
+            val fixNeutral = Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
+            val fixValue = body.evalDirect(using env.addValueVar(name, fixNeutral))
+            projectFromValue(fixValue)
+          }
+          case _ => throw new RuntimeException(s"Cannot project from non-record value: $value")
         }
 
-        // Normal case: evaluate the record term first, then project
-        case _ => {
-          def projectFromValue(value: Value): Value = value match {
-            case Value.Record(fields) => fields.get(field) match {
-              case Some(fieldValue) => fieldValue
-              case None => throw new RuntimeException(s"Field $field not found in record $value")
-            }
-            case Value.Neutral(NeutralValue.Merge(left, right)) => {
-              // Try to project from merge - try left first, then right
-              Try(projectFromValue(left)) match {
-                case Success(result) => result
-                case Failure(_) => Try(projectFromValue(right)) match {
-                  case Success(result) => result
-                  case Failure(_) => Value.Neutral(NeutralValue.Project(NeutralValue.Merge(left, right), field))
-                }
-              }
-            }
-            case Value.Neutral(nv) => Value.Neutral(NeutralValue.Project(nv, field))
-            case Value.FixThunk(env, annotatedType, name, body) => {
-              // Evaluate the fix thunk first
-              val fixNeutral = Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
-              val fixValue = body.evalDirect(using env.addValueVar(name, fixNeutral))
-              projectFromValue(fixValue)
-            }
-            case _ => throw new RuntimeException(s"Cannot project from non-record value: $value")
-          }
-
-          val recordValue = recordTerm.evalDirect
-          projectFromValue(recordValue)
+        val recordValue = recordTerm.evalDirect
+        projectFromValue(recordValue) match {
+          case Some(projectedValue) => projectedValue
+          case None => throw new RuntimeException(s"Field $field not found in record $recordValue")
         }
       }
 
@@ -260,57 +224,70 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
   }
 
   // Extension method to check if a type is top-like
-  extension (tpe: Type) {
-    private def isTopLike: Boolean = tpe match {
-      case Type.Primitive(PrimitiveType.TopType) => true
-      case _ => false
-    }
+  extension (tpe: Type) def isTopLike: Boolean = tpe match {
+    case Type.Primitive(PrimitiveType.TopType) => true
+    case _ => false
   }
 
   extension (value: Value) {
-    def applyTo(arg: Value)(using env: Env): Option[Value] = value match {
-      case Value.Closure(closureEnv, param, paramType, body, returnType, isCoe) => {
-        // Check if argument type matches parameter type
-        if arg.infer(using env) <:< paramType then {
-          // Extend the closure environment with the argument
-          val extendedEnv = closureEnv.addValueVar(param, arg)
-          // Evaluate the body in the extended environment
-          Some(body.evalDirect(using extendedEnv))
-        } else None
-      }
-
-      case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
-        // Create a new environment that includes the fixpoint itself
-        val newEnv = fixEnv.addValueVar(name, fixThunk)
-        // Evaluate the body in the new environment
-        val fn = body.evalDirect(using newEnv)
-        fn.applyTo(arg)(using env)
-      }
-
-      case Value.Neutral(func @ NeutralValue.NativeCall(function, args)) => {
-        if args.length + 1 == function.arity then {
-          // Full application
-          Try { function.call(args :+ arg) }.toOption
-        } else {
-          // Partial application
-          Some(Value.Neutral(NeutralValue.NativeCall(function, args :+ arg)))
+    def applyTo(arg: Value)(using env: Env): Option[Value] = {
+      val argType = arg.infer(using env)
+      value match {
+        case Value.Closure(closureEnv, param, paramType, body, returnType, isCoe) => {
+          // Check if argument type matches parameter type
+          if argType <:< paramType then {
+            // Extend the closure environment with the argument
+            val extendedEnv = closureEnv.addValueVar(param, arg)
+            // Evaluate the body in the extended environment
+            Some(body.evalDirect(using extendedEnv))
+          } else None
         }
-      }
 
-      case Value.Neutral(NeutralValue.Merge(left, right)) => {
-        val leftApplication  = left.applyTo(arg)
-        val rightApplication = right.applyTo(arg)
-        (leftApplication, rightApplication) match {
-          case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult))
-          case (Some(leftResult), None) => Some(leftResult)
-          case (None, Some(rightResult)) => Some(rightResult)
-          case (None, None) => None
+        case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
+          annotatedType match {
+            case Type.Arrow(paramType, returnType, _) =>
+              // Check if argument type matches parameter type
+              if !(argType <:< paramType) then return None
+            case _ => return None
+          }
+          // Create a new environment that includes the fixpoint itself
+          val newEnv = fixEnv.addValueVar(name, fixThunk)
+          // Evaluate the body in the new environment
+          val fn = body.evalDirect(using newEnv)
+          fn.applyTo(arg)(using env)
         }
+
+        case Value.Neutral(func @ NeutralValue.NativeCall(function, args)) => {
+          function.paramTypes.lift(args.length) match {
+            case Some(paramType) =>
+              // Check if argument type matches parameter type
+              if !(argType <:< paramType) then return None
+            case None => return None
+          }
+          if args.length + 1 == function.arity then {
+            // Full application
+            Try { function.call(args :+ arg) }.toOption
+          } else {
+            // Partial application
+            Some(Value.Neutral(NeutralValue.NativeCall(function, args :+ arg)))
+          }
+        }
+
+        case Value.Neutral(NeutralValue.Merge(left, right)) => {
+          val leftApplication  = left.applyTo(arg)
+          val rightApplication = right.applyTo(arg)
+          (leftApplication, rightApplication) match {
+            case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult))
+            case (Some(leftResult), None) => Some(leftResult)
+            case (None, Some(rightResult)) => Some(rightResult)
+            case (None, None) => None
+          }
+        }
+
+        case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Apply(nv, arg)))
+
+        case _ => None
       }
-
-      case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Apply(nv, arg)))
-
-      case _ => None
     }
   }
 }

@@ -1,6 +1,5 @@
 package cp.core
 
-import cp.common.{ImmutEnvironment, Typed}
 import cp.util.IdentifiedByString
 
 enum NeutralValue extends IdentifiedByString {
@@ -67,5 +66,20 @@ enum NeutralValue extends IdentifiedByString {
       }
     }
     case NeutralValue.UnfoldingThunk(_, annotatedType, _, _) => annotatedType
+  }
+
+  def toAtomicString: String = this match {
+    case NeutralValue.Var(name) => name
+    case _ => s"(${this.toString})"
+  }
+
+  override def toString: String = this match {
+    case NeutralValue.Var(name) => name
+    case NeutralValue.Apply(func, arg) => s"(${func.toAtomicString} ${arg.toString})"
+    case NeutralValue.Project(record, field) => s"${record.toAtomicString}.$field"
+    case NeutralValue.Merge(left, right) => s"(${left.toString} ,, ${right.toString})"
+    case NeutralValue.Annotated(value, annotatedType) => s"(${value.toString} : $annotatedType)"
+    case NeutralValue.NativeCall(function, args) => function.toStringWithArgs(args)
+    case NeutralValue.UnfoldingThunk(_, ty, name, body) => s"fix $name : $ty = ${body.toString}"
   }
 }
