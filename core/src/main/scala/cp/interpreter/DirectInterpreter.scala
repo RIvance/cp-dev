@@ -167,21 +167,19 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
       }
 
       case Term.UnfoldFixpoint(fixpointType, foldedTerm) => {
-        if fixpointType.isTopLike then Value.Primitive(PrimitiveValue.UnitValue)
-        else {
-          val foldedValue = foldedTerm.evalDirect
-          foldedValue match {
-            case value => {
-              // Unfold by substituting the fixpoint type variable with the fixpoint itself
-              val unfoldedType = fixpointType match {
-                case Type.Fixpoint(fixpointName, fixpointBody) => fixpointBody.subst(fixpointName, fixpointType)
-                case _ => fixpointType
-              }
-              // Cast the value to the unfolded type
-              value.cast(unfoldedType) match {
-                case Some(castedValue) => castedValue
-                case None => throw new RuntimeException(s"Cannot unfold $value to type $unfoldedType")
-              }
+        if fixpointType.isTopLike then {
+          Value.Primitive(PrimitiveValue.UnitValue)
+        } else foldedTerm.evalDirect match {
+          case value => {
+            // Unfold by substituting the fixpoint type variable with the fixpoint itself
+            val unfoldedType = fixpointType match {
+              case Type.Fixpoint(fixpointName, fixpointBody) => fixpointBody.subst(fixpointName, fixpointType)
+              case _ => fixpointType
+            }
+            // Cast the value to the unfolded type
+            value.cast(unfoldedType) match {
+              case Some(castedValue) => castedValue
+              case None => throw new RuntimeException(s"Cannot unfold $value to type $unfoldedType")
             }
           }
         }
@@ -257,19 +255,20 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
           fn.applyTo(arg)(using env)
         }
 
-        case Value.Neutral(func @ NeutralValue.NativeCall(function, args)) => {
-          function.paramTypes.lift(args.length) match {
+        case Value.Neutral(func @ NeutralValue.NativeCall(function, prevArgs)) => {
+          function.paramTypes.lift(prevArgs.length) match {
             case Some(paramType) =>
               // Check if argument type matches parameter type
               if !(argType <:< paramType) then return None
             case None => return None
           }
-          if args.length + 1 == function.arity then {
-            // Full application
-            Try { function.call(args :+ arg) }.toOption
+          val args = prevArgs :+ arg
+          if args.length == function.arity && !args.exists(_.isNeutral) then {
+            // Last argument, perform full application
+            Some(function.call(args))
           } else {
             // Partial application
-            Some(Value.Neutral(NeutralValue.NativeCall(function, args :+ arg)))
+            Some(Value.Neutral(NeutralValue.NativeCall(function, args)))
           }
         }
 

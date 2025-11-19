@@ -308,6 +308,7 @@ enum Term extends IdentifiedByString {
   
   def isValue: Boolean = this.isValue(Set.empty)
 
+  @deprecated
   def filter(expectedType: Type)(using env: Env): Term = this match {
 
     // For records, only keep the fields that are present in the expected type,
@@ -475,9 +476,14 @@ enum Term extends IdentifiedByString {
     case Tuple(elements) => s"(${elements.map(_.toString).mkString(", ")})"
 
     case Merge(left, right, bias) => bias match {
-      case MergeBias.Neutral => s"$left ,, $right"
       case MergeBias.Left => s"$left ,> $right"
       case MergeBias.Right => s"$left <, $right"
+      case MergeBias.Neutral => {
+        val leftStr = left.toString
+        val rightStr = right.toString
+        if leftStr == rightStr then leftStr
+        else s"$left ,, $right"
+      }
     }
 
     case Diff(left, right) => s"$left \\ $right"
