@@ -1,6 +1,6 @@
 package cp.core
 
-import cp.common.{Environment, ImmutEnvironment, Typed}
+import cp.common.Environment
 import cp.error.CoreErrorKind.*
 import cp.util.IdentifiedByString
 

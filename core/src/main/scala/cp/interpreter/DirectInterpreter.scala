@@ -261,7 +261,10 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
             // Extend the closure environment with the argument
             val extendedEnv = closureEnv.addValueVar(param, arg)
             // Evaluate the body in the extended environment
-            Some(body.evalDirect(using extendedEnv, unfoldingSuppressor))
+            val result = body.evalDirect(using extendedEnv, unfoldingSuppressor)
+            result.cast(returnType).orElse {
+              throw new RuntimeException(s"Type cast error: cannot cast result $result to return type $returnType")
+            }
           } else None
         }
 

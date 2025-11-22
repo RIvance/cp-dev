@@ -84,108 +84,97 @@ enum Value extends IdentifiedByString {
     case _ => this // For non-record values, return unchanged
   }
 
-  // Cast this value to a target type, potentially filtering/transforming it
   def cast(targetType: Type)(using env: ValueEnv): Option[Value] = {
-    val normalizedTargetType = targetType.normalize(using env.typeEnv)
-    castToNormalizedType(normalizedTargetType)
-  }
+    (this, targetType.normalize) match {
+      case (_, Type.Primitive(PrimitiveType.TopType)) =>
+        // Casting to top-like type, generate appropriate top-like value
+        Some(generateTopLikeValue(targetType))
 
-  private def castToNormalizedType(targetType: Type)(using env: ValueEnv): Option[Value] = {
-    // Handle top-like types - generate appropriate top-like values
-    targetType match {
-      case Type.Primitive(PrimitiveType.TopType) =>
-        return Some(generateTopLikeValue(targetType))
-      case _ => // Continue to normal casting
-    }
+      // Primitive types
+      case (Primitive(primitiveValue), Type.Primitive(primitiveType))
+        if primitiveValue.ty == primitiveType => Some(this)
 
-    // Handle intersection types - cast value to each part and merge
-    targetType match {
-      case Type.Intersection(left, right) => for {
-        leftCast <- this.cast(left)
-        rightCast <- this.cast(right)
-      } yield Value.Neutral(NeutralValue.Merge(leftCast, rightCast))
-      case _ => this match {
-        // Handle merge values - try casting either branch
-        case Neutral(NeutralValue.Merge(leftValue, rightValue)) =>
-          leftValue.cast(targetType).orElse(rightValue.cast(targetType))
-        case _ => castSingleValue(targetType)
-      }
-    }
-  }
+      // Fixpoint types
+      case (FixThunk(thunkEnv, annotatedType, _, _), _) =>
+        given thunkTypeEnv: TypeEnvironment[String, Type] = thunkEnv.typeEnv
+        val normalizedAnnotatedType = annotatedType.normalize
+        if normalizedAnnotatedType <:< targetType then Some(this) else None
 
-  private def castSingleValue(targetType: Type)(using env: ValueEnv): Option[Value] = (this, targetType) match {
-    // Primitive types
-    case (Primitive(primitiveValue), Type.Primitive(primitiveType))
-      if primitiveValue.ty == primitiveType => Some(this)
+      // Record types
+      case (Record(fields), Type.Record(targetFields)) =>
+        // Cast record to target record type, recursively cast each field
+        targetFields.foldLeft(Option(Map.empty[String, Value])) {
+          case (accOpt, (fieldName, fieldType)) => accOpt.flatMap { acc =>
+            fields.get(fieldName).flatMap(_.cast(fieldType)).map(casted => acc + (fieldName -> casted))
+          }
+        }.map(Record.apply)
 
-    // Fixpoint types
-    case (FixThunk(thunkEnv, annotatedType, _, _), _) =>
-      given thunkTypeEnv: TypeEnvironment[String, Type] = thunkEnv.typeEnv
-      val normalizedAnnotatedType = annotatedType.normalize
-      if normalizedAnnotatedType <:< targetType then Some(this) else None
+      // Arrow types (function closures with coercion support)
+      case (Closure(closureEnv, param, paramType, body, returnType, _), Type.Arrow(targetDomain, targetCodomain, isTrait)) =>
+        given closureTypeEnv: TypeEnvironment[String, Type] = closureEnv.typeEnv
+        val normalizedParamType = paramType.normalize
+        val normalizedReturnType = returnType.normalize
+        val normalizedTargetCodomain = targetCodomain.normalize(using env.typeEnv)
 
-    // Record types
-    case (Record(fields), Type.Record(targetFields)) =>
-      // Cast record to target record type, recursively cast each field
-      targetFields.foldLeft(Option(Map.empty[String, Value])) { case (accOpt, (fieldName, fieldType)) =>
-        accOpt.flatMap { acc =>
-          fields.get(fieldName).flatMap(_.cast(fieldType)).map(castedValue => acc + (fieldName -> castedValue))
-        }
-      }.map(Record.apply)
-
-    // Arrow types (function closures with coercion support)
-    case (Closure(closureEnv, param, paramType, body, returnType, _), Type.Arrow(targetDomain, targetCodomain, isTrait)) =>
-      given closureTypeEnv: TypeEnvironment[String, Type] = closureEnv.typeEnv
-      val normalizedParamType = paramType.normalize
-      val normalizedReturnType = returnType.normalize
-      val normalizedTargetCodomain = targetCodomain.normalize(using env.typeEnv)
-
-      // Check if returnType <: targetCodomain (covariant in return type)
-      if normalizedReturnType <:< normalizedTargetCodomain then {
-        // Create a coercive closure with updated return type
-        Some(Closure(closureEnv, param, normalizedParamType, body, normalizedTargetCodomain, isCoe = true))
-      } else None
-
-    // Type abstractions (forall types)
-    case (TypeClosure(closureEnv, typeParam, body, returnType), Type.Forall(targetParam, targetCodomain, targetConstraints)) =>
-      given closureTypeEnv: TypeEnvironment[String, Type] = closureEnv.typeEnv
-      val normalizedReturnType = returnType.normalize
-      val normalizedTargetCodomain = targetCodomain.normalize(using env.typeEnv)
-
-      // Check if the return type is a subtype of target codomain
-      if normalizedReturnType <:< normalizedTargetCodomain then {
-        Some(TypeClosure(closureEnv, targetParam, body, normalizedTargetCodomain))
-      } else None
-
-    // Array types
-    case (Array(elements), Type.Array(targetElementType)) =>
-      if elements.isEmpty then {
-        Some(Array(Nil))
-      } else {
-        val inferredElementType = elements.head.infer
-        val normalizedInferred = inferredElementType.normalize(using env.typeEnv)
-        val normalizedTarget = targetElementType.normalize(using env.typeEnv)
-
-        if normalizedInferred <:< normalizedTarget then {
-          Some(Array(elements))
+        // Check if returnType <: targetCodomain (covariant in return type)
+        if normalizedReturnType <:< normalizedTargetCodomain then {
+          // Create a closure with updated return type
+          Some(Closure(closureEnv, param, normalizedParamType, body, normalizedTargetCodomain, isTrait))
         } else None
-      }
 
-    // Tuple types
-    case (Tuple(elements), Type.Tuple(targetTypes)) if elements.length == targetTypes.length =>
-      // Cast tuple elements to target types
-      elements.zip(targetTypes).foldLeft(Option(List.empty[Value])) { case (accOpt, (elem, elemTargetType)) =>
-        accOpt.flatMap { acc =>
-          elem.cast(elemTargetType).map(castedValue => acc :+ castedValue)
+      // Type abstractions (forall types)
+      case (TypeClosure(closureEnv, typeParam, body, returnType), Type.Forall(targetParam, targetCodomain, targetConstraints)) =>
+        given closureTypeEnv: TypeEnvironment[String, Type] = closureEnv.typeEnv
+        val normalizedReturnType = returnType.normalize
+        val normalizedTargetCodomain = targetCodomain.normalize(using env.typeEnv)
+
+        // Check if the return type is a subtype of target codomain
+        if normalizedReturnType <:< normalizedTargetCodomain then {
+          Some(TypeClosure(closureEnv, targetParam, body, normalizedTargetCodomain))
+        } else None
+
+      // Array types
+      case (Array(elements), Type.Array(targetElementType)) =>
+        if elements.isEmpty then {
+          Some(Array(Nil))
+        } else {
+          val inferredElementType = elements.head.infer
+          val normalizedInferred = inferredElementType.normalize(using env.typeEnv)
+          val normalizedTarget = targetElementType.normalize(using env.typeEnv)
+
+          if normalizedInferred <:< normalizedTarget then {
+            Some(Array(elements))
+          } else None
         }
-      }.map(Tuple.apply)
 
-    case (Value.Neutral(nv), _) =>
+      // Tuple types
+      case (Tuple(elements), Type.Tuple(targetTypes)) if elements.length == targetTypes.length =>
+        // Cast tuple elements to target types
+        elements.zip(targetTypes).foldLeft(Option(List.empty[Value])) { case (accOpt, (elem, elemTargetType)) =>
+          accOpt.flatMap { acc =>
+            elem.cast(elemTargetType).map(castedValue => acc :+ castedValue)
+          }
+        }.map(Tuple.apply)
+
       // For neutral values, we cannot determine compatibility here, just return a neutral cast
-      Some(Value.Neutral(NeutralValue.Annotated(nv, targetType)))
+      case (Neutral(nv), _) if this.isNeutral => Some(Value.Neutral(NeutralValue.Annotated(nv, targetType)))
 
-    // Default case - incompatible cast
-    case _ => None
+      // Default case - incompatible cast
+      case _ => {
+        val splitTypes = targetType.split
+        if splitTypes.size > 1 then {
+          val castedParts = splitTypes.map { partType => this.cast(partType) }
+          if castedParts.forall(_.isDefined) then {
+            Some(castedParts.flatten.reduce { (left, right) => left.merge(right) })
+          } else None
+        } else this match {
+          // Handle merge values - try casting either branch
+          case Neutral(NeutralValue.Merge(leftValue, rightValue)) =>
+            leftValue.cast(targetType).orElse(rightValue.cast(targetType))
+          case _ => None
+        }
+      }
+    }
   }
 
   private def generateTopLikeValue(targetType: Type): Value = targetType match {
@@ -230,6 +219,7 @@ enum Value extends IdentifiedByString {
   }
 
   def isNeutral: Boolean = this match {
+    case Neutral(NeutralValue.Merge(left, right)) => left.isNeutral || right.isNeutral
     case Neutral(_) => true
     case _ => false
   }

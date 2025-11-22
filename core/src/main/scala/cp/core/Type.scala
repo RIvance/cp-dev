@@ -499,9 +499,8 @@ enum Type extends IdentifiedByString {
     //  so we just return top type here
     case (left, right) if left.isTopLike => Type.top
     case (left, right) if left unify right => Type.bottom
-    case (left, right) if left.split.isDefined => {
-      val (left1, left2) = left.split.get
-      left1.diff(right).merge(left2.diff(right)).normalize
+    case (left, right) if left.split.size > 1 => {
+      left.split.map(_.diff(right).normalize).reduce(_.merge(_)).normalize
     }
 
     // Still, why does the original implementation return top here???
@@ -594,35 +593,20 @@ enum Type extends IdentifiedByString {
     case (left, right) => Intersection(left, right)
   }
   
-  def split: Option[(Type, Type)] = this match {
-    case Intersection(lhs, rhs) => Some((lhs, rhs))
-    case Arrow(domain, codomain, isTrait) => codomain.split match {
-      case Some((left, right)) => Some((Arrow(domain, left, isTrait), Arrow(domain, right, isTrait)))
-      case None => None
+  def split: Set[Type] = this match {
+    case Intersection(lhs, rhs) => lhs.split ++ rhs.split
+    case Arrow(domain, codomain, isTrait) => codomain.split.map {
+      subCodomain => Arrow(domain, subCodomain, isTrait)
     }
-    case Record(fields) if fields.isEmpty => None
-    case Record(fields) => {
-      val splitFields = fields.map { case (label, ty) => label -> ty.split }
-      if splitFields.exists(_._2.isEmpty) then None else {
-        val leftFields = splitFields.map { (label, field) => label -> field.get._1 }
-        val rightFields = splitFields.map { (label, field) => label -> field.get._2 }
-        Some((Record(leftFields), Record(rightFields)))
-      }
-    }
-    case Tuple(elements) => {
-      val splitElements = elements.map(_.split)
-      if splitElements.exists(_.isEmpty) then None else {
-        val leftElements = splitElements.map(_.get._1)
-        val rightElements = splitElements.map(_.get._2)
-        Some((Tuple(leftElements), Tuple(rightElements)))
-      }
-    }
+    case Record(fields) => fields.map {
+      case (label, fieldType) => Record(Map(label -> fieldType))
+    }.toSet
     case Forall(param, codomain, constraints) => {
-      codomain.split.map { case (left, right) =>
-        (Forall(param, left, constraints), Forall(param, right, constraints))
+      codomain.split.map { subCodomain =>
+        Forall(param, subCodomain, constraints)
       }
     }
-    case _ => None
+    case _ => Set(this)
   }
   
   override def contains(name: String): Boolean = this match {
@@ -635,6 +619,7 @@ enum Type extends IdentifiedByString {
     case Signature(sortInName, sortOutName, body) => {
       sortInName != name && sortOutName != name && body.contains(name)
     }
+    case Array(elementType) => elementType.contains(name)
     case Intersection(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
     case Union(lhs, rhs) => lhs.contains(name) || rhs.contains(name)
     case Record(fields) => fields.values.exists(_.contains(name))
