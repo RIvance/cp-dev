@@ -3,15 +3,33 @@ package cp.interpreter
 import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
 
-import scala.util.Try
-
 class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModules*) {
 
   def eval(term: Term)(using env: Env = Environment.empty[String, Type, Value]): Value = term.evalDirect
 
+  private case class FixProjection(fixpoint: Value.FixThunk, field: String)
+
+  private case class UnfoldingSuppressor(fixpoints: Set[FixProjection]) {
+    def isSuppressed(fixpoint: FixProjection): Boolean = fixpoints.contains(fixpoint)
+    def isSuppressed(fixpoint: (Value.FixThunk, String)): Boolean = {
+      fixpoints.contains(FixProjection(fixpoint._1, fixpoint._2))
+    }
+    def +(fixpoint: FixProjection): UnfoldingSuppressor = UnfoldingSuppressor(fixpoints + fixpoint)
+    def +(fixpoint: (Value.FixThunk, String)): UnfoldingSuppressor = {
+      UnfoldingSuppressor(fixpoints + FixProjection(fixpoint._1, fixpoint._2))
+    }
+  }
+
+  private object UnfoldingSuppressor {
+    def apply(): UnfoldingSuppressor = UnfoldingSuppressor(Set.empty)
+    def apply(fixpoint: FixProjection): UnfoldingSuppressor = UnfoldingSuppressor(Set(fixpoint))
+  }
+
   extension (term: Term) {
 
-    private def evalDirect(using env: Env): Value = term match {
+    private def evalDirect(
+      using env: Env, unfoldingSuppressor: UnfoldingSuppressor = UnfoldingSuppressor()
+    ): Value = term match {
 
       case Term.Var(name) => env.getValue(name) match {
         case Some(value) => value
@@ -43,7 +61,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         // Fixpoint itself will be added to the environment when evaluating the thunk
         lazy val fixThunk: Value = Value.FixThunk(env, annotatedType.normalize, name, body)
         // Unfold once
-        body.evalDirect(using newEnv)
+        body.evalDirect(using newEnv, unfoldingSuppressor)
       }
 
       case Term.Record(fields) => {
@@ -64,11 +82,15 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
             }
           }
           case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Project(nv, field)))
-          case Value.FixThunk(env, annotatedType, name, body) => {
+          case fixThunk @ Value.FixThunk(env, annotatedType, name, body) => {
             // Evaluate the fix thunk first
-            val fixNeutral = Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
-            val fixValue = body.evalDirect(using env.addValueVar(name, fixNeutral))
-            projectFromValue(fixValue)
+            val fixValue = if unfoldingSuppressor.isSuppressed(fixThunk -> field) then {
+              // Unfolding is suppressed for this fixpoint projection
+              Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
+            } else fixThunk
+            val envWithFix = env.addValueVar(name, fixValue)
+            val projectValue = body.evalDirect(using envWithFix, unfoldingSuppressor + (fixThunk, field))
+            projectFromValue(projectValue)
           }
           case _ => throw new RuntimeException(s"Cannot project from non-record value: $value")
         }
@@ -82,7 +104,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
 
       case Term.Symbol(symbolName, symbolType) => modules.get(symbolName.namespace) match {
         case Some(module) => module.terms.get(symbolName.localName) match {
-          case Some(term) => term.evalDirect(using env)
+          case Some(term) => term.evalDirect(using env, unfoldingSuppressor)
           case None => throw new RuntimeException(s"Term ${symbolName.localName} not found in module ${symbolName.namespace}")
         }
         case None => throw new RuntimeException(s"Module ${symbolName.namespace} not found")
@@ -101,7 +123,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         val expandedTypeArg = typeArgument.normalize // Type expansion would happen here if needed
         polymorphicValue match {
           case Value.TypeClosure(closureEnv, typeParam, body, _) =>
-            body.evalDirect(using closureEnv.addTypeVar(typeParam, expandedTypeArg))
+            body.evalDirect(using closureEnv.addTypeVar(typeParam, expandedTypeArg), unfoldingSuppressor)
           case other => throw new RuntimeException(s"Runtime type error: expected type-polymorphic value, got $other")
         }
       }
@@ -228,7 +250,9 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
   }
 
   extension (value: Value) {
-    def applyTo(arg: Value)(using env: Env): Option[Value] = {
+    private def applyTo(arg: Value)(
+      using env: Env, unfoldingSuppressor: UnfoldingSuppressor
+    ): Option[Value] = {
       val argType = arg.infer(using env)
       value match {
         case Value.Closure(closureEnv, param, paramType, body, returnType, isCoe) => {
@@ -237,7 +261,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
             // Extend the closure environment with the argument
             val extendedEnv = closureEnv.addValueVar(param, arg)
             // Evaluate the body in the extended environment
-            Some(body.evalDirect(using extendedEnv))
+            Some(body.evalDirect(using extendedEnv, unfoldingSuppressor))
           } else None
         }
 
@@ -251,7 +275,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
           // Create a new environment that includes the fixpoint itself
           val newEnv = fixEnv.addValueVar(name, fixThunk)
           // Evaluate the body in the new environment
-          val fn = body.evalDirect(using newEnv)
+          val fn = body.evalDirect(using newEnv, unfoldingSuppressor)
           fn.applyTo(arg)(using env)
         }
 
