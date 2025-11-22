@@ -65,31 +65,6 @@ case class RawModule(
       dependencies = compiledDependencies,
     )
   }
-
-//  extension (term: Term) {
-//    // Map module-level local symbols to a fully qualified name
-//    //  and inline all types from the environment
-//    def resolve(namespace: Namespace, terms: Map[String, Term])(using env: Env): Term = term match {
-//      case Term.Var(name) => {
-//        if env.values.contains(name) then term
-//        else terms.get(name) match {
-//          case Some(resolvedTerm) => Term.Symbol(namespace.qualified(name), resolvedTerm.infer)
-//          case None => throw new RuntimeException(s"Unresolved symbol: $name in namespace ${namespace}")
-//        }
-//      }
-//      case Term.Lambda(param, paramType, body, isCoe) => {
-//        // add param to env
-//        val newEnv = env.addValueVar(param, Term.Var(param))
-//        Term.Lambda(param, paramType.normalize, body.resolve(namespace, terms)(using newEnv), isCoe)
-//      }
-//      case Term.Fixpoint(name, annotatedType, body) => {
-//        // add name to env
-//        val newEnv = env.addValueVar(name, Term.Var(name))
-//        Term.Fixpoint(name, annotatedType.normalize, body.resolve(namespace, terms)(using newEnv))
-//      }
-//      case _ => term.normalizeTypes.mapSubterms(_.resolve(namespace))
-//    }
-//  }
   
   /**
    * Sort elements by their dependencies.

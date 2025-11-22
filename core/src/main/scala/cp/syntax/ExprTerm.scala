@@ -112,7 +112,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       val expectedType = expectedTypeExpr.synthesize
       if !(ty <:< expectedType) then TypeNotMatch.raise {
         s"Expected type: $expectedType, found: $ty"
-      } else (Term.Annotated(term, expectedType), ty)
+      } else (Term.Annotated(term, expectedType), expectedType)
     }
 
     case ExprTerm.Apply(fn, args) => {
@@ -490,7 +490,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
             isTrait = true
           )
         }
-        case _ => 
+        case _ => {
           if !leftType.disjointWith(rightType) then TypeNotMatch.raise {
             s"Cannot merge two overlapping types: $leftType and $rightType"
           }
@@ -499,6 +499,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
           if !mergedTerm.check(mergedType) then TypeNotMatch.raise {
             s"Merged term does not check against its type: $mergedTerm : $mergedType"
           } else (mergedTerm, mergedType)
+        }
       }
     }
       

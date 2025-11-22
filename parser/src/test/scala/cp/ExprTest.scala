@@ -95,4 +95,17 @@ class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
       ))
     )
   }
+
+  test("trait field override by merging") {
+    "((fix self : { a: Int; b: Int } . { a = 1; b = self.a }) : { b : Int }) ,, { a = 2 }" >>> (
+      Term.Record(Map(
+        "a" -> IntValue(2).toTerm,
+        "b" -> IntValue(1).toTerm
+      )),
+      Type.Record(Map(
+        "a" -> IntType.toType,
+        "b" -> IntType.toType
+      ))
+    )
+  }
 }
