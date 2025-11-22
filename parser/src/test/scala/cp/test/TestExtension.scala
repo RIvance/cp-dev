@@ -2,7 +2,7 @@ package cp.test
 
 import cp.ast.{CpLexer, CpParser}
 import cp.common.Environment
-import cp.core.{EvalMode, Module, Namespace, Term, Type, Value}
+import cp.core.{Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
 import cp.interpreter.{DirectInterpreter, Interpreter}
 import cp.parser.{ErrorListener, Visitor}

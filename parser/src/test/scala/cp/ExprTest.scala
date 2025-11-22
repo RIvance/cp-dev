@@ -1,16 +1,16 @@
 package cp
 
-import cp.core.PrimitiveValue.*
 import cp.core.PrimitiveType.*
+import cp.core.PrimitiveValue.*
 import cp.core.{PrimitiveType, PrimitiveValue, Term, Type}
+import cp.interpreter.{DirectInterpreter, Interpreter}
 import cp.prelude.Prelude
-import cp.interpreter.{DirectInterpreter, Interpreter, TrampolineInterpreter}
 import cp.test.TestExtension
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
-  
+
   given Interpreter = DirectInterpreter(Prelude)
   
   test("primitive type Int") {

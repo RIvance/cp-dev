@@ -522,10 +522,6 @@ enum Term extends IdentifiedByString {
   }
 }
 
-enum EvalMode {
-  case Normalize, Unfold, Full
-}
-
 enum MergeBias {
   case Neutral, Left, Right
 }

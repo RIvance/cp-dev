@@ -2,7 +2,7 @@ package cp.tool
 
 import cp.cli.ReadEvalPrintLoop
 import cp.common.Environment
-import cp.core.{CoreModule, Dependency, EvalMode, Module, Namespace, Term, Type, Value}
+import cp.core.{CoreModule, Dependency, Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
 import cp.interpreter.TrampolineInterpreter
 import cp.parser.{ErrorListener, Statement, SyntaxError, Visitor}
