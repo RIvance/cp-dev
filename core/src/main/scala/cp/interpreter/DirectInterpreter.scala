@@ -41,7 +41,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
       case Term.Lambda(param, paramType, body, isCoe) => {
         val termEnv: Environment[String, Type, Term] = env.mapValues {
           case (name, value) => Term.Annotated(Term.Var(name), value.infer(using env))
-        }
+        }.addValueVar(param, Term.Annotated(Term.Var(param), paramType))
         val returnType = body.infer(using termEnv).normalize
         Value.Closure(env, param, paramType.normalize, body, returnType, isCoe)
       }
