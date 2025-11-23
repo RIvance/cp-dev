@@ -4,7 +4,6 @@ import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
 
 import scala.util.control.TailCalls.{TailRec, done, tailcall}
-import scala.util.{Failure, Success, Try}
 
 class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initialModules*) {
 
@@ -63,29 +62,27 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
       }
 
       case Term.Projection(recordTerm, field) => {
-        def projectFromValue(value: Value): TailRec[Value] = value match {
-          case Value.Record(fields) => fields.get(field) match {
-            case Some(fieldValue) => done(fieldValue)
-            case None => throw new RuntimeException(s"Field $field not found in record $value")
-          }
+        def projectFromValue(value: Value): Option[TailRec[Value]] = value match {
+          case Value.Record(fields) => fields.get(field).map(done)
           case Value.Merge(values) => {
             // Try to project from each value in the merge set
-            val results = values.flatMap { v =>
-              Try(projectFromValue(v).result).toOption
-            }
-            if results.isEmpty then throw new RuntimeException(s"Field $field not found in merge")
-            else done(results.reduce((left, right) => left.merge(right)(using env)))
+            val results = values.flatMap(projectFromValue)
+            if results.isEmpty then None
+            else Some(done(results.map(_.result).reduce((left, right) => left.merge(right)(using env))))
           }
           case Value.Neutral(NeutralValue.Merge(left, right)) => {
             // Try to project from merge - try left and right and merge results if both succeed
-            Try(projectFromValue(Value.Neutral(left)).result) -> Try(projectFromValue(right).result) match {
-              case (Success(leftResult), Success(rightResult)) => done(leftResult.merge(rightResult)(using env))
-              case (Success(leftResult), _) => done(leftResult)
-              case (_, Success(rightResult)) => done(rightResult)
-              case (Failure(_), Failure(_)) => throw new RuntimeException(s"Field $field not found in merge")
+            (projectFromValue(Value.Neutral(left)), projectFromValue(right)) match {
+              case (Some(leftComp), Some(rightComp)) => Some(for {
+                leftResult <- leftComp
+                rightResult <- rightComp
+              } yield leftResult.merge(rightResult)(using env))
+              case (Some(leftComp), None) => Some(leftComp)
+              case (None, Some(rightComp)) => Some(rightComp)
+              case (None, None) => None
             }
           }
-          case Value.Neutral(nv) => done(Value.Neutral(NeutralValue.Project(nv, field)))
+          case Value.Neutral(nv) => Some(done(Value.Neutral(NeutralValue.Project(nv, field))))
           case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
             // Evaluate the fix thunk first
             val fixValue = if unfoldingSuppressor.isSuppressed(fixThunk -> field) then {
@@ -93,17 +90,23 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
               Value.Neutral(NeutralValue.UnfoldingThunk(fixEnv, annotatedType, name, body))
             } else fixThunk
             val envWithFix = fixEnv.addValueVar(name, fixValue)
-            for {
+            Some(for {
               projectValue <- body.evalTramp(using envWithFix, unfoldingSuppressor + (fixThunk, field))
-              result <- tailcall(projectFromValue(projectValue))
-            } yield result
+              result <- projectFromValue(projectValue) match {
+                case Some(comp) => comp
+                case None => throw new RuntimeException(s"Field $field not found in record")
+              }
+            } yield result)
           }
-          case _ => throw new RuntimeException(s"Cannot project from non-record value: $value")
+          case _ => None
         }
 
         for {
           recordValue <- recordTerm.evalTramp
-          result <- tailcall(projectFromValue(recordValue))
+          result <- projectFromValue(recordValue) match {
+            case Some(comp) => comp
+            case None => throw new RuntimeException(s"Field $field not found in record $recordValue")
+          }
         } yield result
       }
 
@@ -349,22 +352,24 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
         }
 
         case Value.Neutral(NeutralValue.Merge(left, right)) => {
-          (Try(Value.Neutral(left).applyTo(arg)(using env, unfoldingSuppressor)), Try(right.applyTo(arg)(using env, unfoldingSuppressor))) match {
-            case (Success(Some(leftComp)), Success(Some(rightComp))) => {
+          val leftApplication = Value.Neutral(left).applyTo(arg)(using env, unfoldingSuppressor)
+          val rightApplication = right.applyTo(arg)(using env, unfoldingSuppressor)
+          (leftApplication, rightApplication) match {
+            case (Some(leftComp), Some(rightComp)) => {
               Some(for {
                 leftResult <- leftComp
                 rightResult <- rightComp
               } yield leftResult.merge(rightResult)(using env))
             }
-            case (Success(Some(leftComp)), _) => Some(leftComp)
-            case (_, Success(Some(rightComp))) => Some(rightComp)
-            case _ => None
+            case (Some(leftComp), None) => Some(leftComp)
+            case (None, Some(rightComp)) => Some(rightComp)
+            case (None, None) => None
           }
         }
 
         case Value.Merge(values) => {
           val applications = values.flatMap { v =>
-            Try(v.applyTo(arg)(using env, unfoldingSuppressor)).toOption.flatten
+            v.applyTo(arg)(using env, unfoldingSuppressor)
           }
           if applications.isEmpty then None
           else Some(done(applications.map(_.result).reduce((left, right) => left.merge(right)(using env))))
