@@ -84,4 +84,9 @@ object WorkList {
       case None    => throw new RuntimeException("WorkList failed")
     }
   }
+
+  infix def >>=[Task[_], A, B](
+    workList: WorkList[Task, A],
+    cont: A => WorkList[Task, B],
+  ): WorkList[Task, B] = workList.flatMap(cont)
 }
