@@ -54,23 +54,29 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
       case Term.Projection(recordTerm, field) => {
         def projectFromValue(value: Value): Option[Value] = value match {
           case Value.Record(fields) => fields.get(field)
+          case Value.Merge(values) => {
+            // Try to project from each value in the merge set
+            val results = values.flatMap(projectFromValue)
+            if results.isEmpty then None
+            else Some(results.reduce((left, right) => left.merge(right)(using env)))
+          }
           case Value.Neutral(NeutralValue.Merge(left, right)) => {
             // Try to project from merge - try left and right and merge results if both succeed
-            (projectFromValue(left), projectFromValue(right)) match {
-              case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult))
+            (projectFromValue(Value.Neutral(left)), projectFromValue(right)) match {
+              case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult)(using env))
               case (Some(leftResult), None) => Some(leftResult)
               case (None, Some(rightResult)) => Some(rightResult)
               case (None, None) => None
             }
           }
           case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Project(nv, field)))
-          case fixThunk @ Value.FixThunk(env, annotatedType, name, body) => {
+          case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
             // Evaluate the fix thunk first
             val fixValue = if unfoldingSuppressor.isSuppressed(fixThunk -> field) then {
               // Unfolding is suppressed for this fixpoint projection
-              Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
+              Value.Neutral(NeutralValue.UnfoldingThunk(fixEnv, annotatedType, name, body))
             } else fixThunk
-            val envWithFix = env.addValueVar(name, fixValue)
+            val envWithFix = fixEnv.addValueVar(name, fixValue)
             val projectValue = body.evalDirect(using envWithFix, unfoldingSuppressor + (fixThunk, field))
             projectFromValue(projectValue)
           }
@@ -282,14 +288,20 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         }
 
         case Value.Neutral(NeutralValue.Merge(left, right)) => {
-          val leftApplication  = left.applyTo(arg)
+          val leftApplication  = Value.Neutral(left).applyTo(arg)
           val rightApplication = right.applyTo(arg)
           (leftApplication, rightApplication) match {
-            case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult))
+            case (Some(leftResult), Some(rightResult)) => Some(leftResult.merge(rightResult)(using env))
             case (Some(leftResult), None) => Some(leftResult)
             case (None, Some(rightResult)) => Some(rightResult)
             case (None, None) => None
           }
+        }
+
+        case Value.Merge(values) => {
+          val applications = values.flatMap(_.applyTo(arg))
+          if applications.isEmpty then None
+          else Some(applications.reduce((left, right) => left.merge(right)(using env)))
         }
 
         case Value.Neutral(nv) => Some(Value.Neutral(NeutralValue.Apply(nv, arg)))

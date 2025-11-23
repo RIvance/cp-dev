@@ -68,23 +68,31 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
             case Some(fieldValue) => done(fieldValue)
             case None => throw new RuntimeException(s"Field $field not found in record $value")
           }
+          case Value.Merge(values) => {
+            // Try to project from each value in the merge set
+            val results = values.flatMap { v =>
+              Try(projectFromValue(v).result).toOption
+            }
+            if results.isEmpty then throw new RuntimeException(s"Field $field not found in merge")
+            else done(results.reduce((left, right) => left.merge(right)(using env)))
+          }
           case Value.Neutral(NeutralValue.Merge(left, right)) => {
             // Try to project from merge - try left and right and merge results if both succeed
-            Try(projectFromValue(left).result) -> Try(projectFromValue(right).result) match {
-              case (Success(leftResult), Success(rightResult)) => done(leftResult.merge(rightResult))
+            Try(projectFromValue(Value.Neutral(left)).result) -> Try(projectFromValue(right).result) match {
+              case (Success(leftResult), Success(rightResult)) => done(leftResult.merge(rightResult)(using env))
               case (Success(leftResult), _) => done(leftResult)
               case (_, Success(rightResult)) => done(rightResult)
               case (Failure(_), Failure(_)) => throw new RuntimeException(s"Field $field not found in merge")
             }
           }
           case Value.Neutral(nv) => done(Value.Neutral(NeutralValue.Project(nv, field)))
-          case fixThunk @ Value.FixThunk(env, annotatedType, name, body) => {
+          case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
             // Evaluate the fix thunk first
             val fixValue = if unfoldingSuppressor.isSuppressed(fixThunk -> field) then {
               // Unfolding is suppressed for this fixpoint projection
-              Value.Neutral(NeutralValue.UnfoldingThunk(env, annotatedType, name, body))
+              Value.Neutral(NeutralValue.UnfoldingThunk(fixEnv, annotatedType, name, body))
             } else fixThunk
-            val envWithFix = env.addValueVar(name, fixValue)
+            val envWithFix = fixEnv.addValueVar(name, fixValue)
             for {
               projectValue <- body.evalTramp(using envWithFix, unfoldingSuppressor + (fixThunk, field))
               result <- tailcall(projectFromValue(projectValue))
@@ -341,17 +349,25 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
         }
 
         case Value.Neutral(NeutralValue.Merge(left, right)) => {
-          (Try(left.applyTo(arg)(using env, unfoldingSuppressor)), Try(right.applyTo(arg)(using env, unfoldingSuppressor))) match {
+          (Try(Value.Neutral(left).applyTo(arg)(using env, unfoldingSuppressor)), Try(right.applyTo(arg)(using env, unfoldingSuppressor))) match {
             case (Success(Some(leftComp)), Success(Some(rightComp))) => {
               Some(for {
                 leftResult <- leftComp
                 rightResult <- rightComp
-              } yield leftResult.merge(rightResult))
+              } yield leftResult.merge(rightResult)(using env))
             }
             case (Success(Some(leftComp)), _) => Some(leftComp)
             case (_, Success(Some(rightComp))) => Some(rightComp)
             case _ => None
           }
+        }
+
+        case Value.Merge(values) => {
+          val applications = values.flatMap { v =>
+            Try(v.applyTo(arg)(using env, unfoldingSuppressor)).toOption.flatten
+          }
+          if applications.isEmpty then None
+          else Some(done(applications.map(_.result).reduce((left, right) => left.merge(right)(using env))))
         }
 
         case Value.Neutral(nv) => Some(done(Value.Neutral(NeutralValue.Apply(nv, arg))))

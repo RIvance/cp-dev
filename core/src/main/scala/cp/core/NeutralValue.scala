@@ -6,7 +6,7 @@ enum NeutralValue extends IdentifiedByString {
   case Var(name: String)
   case Apply(func: NeutralValue, arg: Value)
   case Project(record: NeutralValue, field: String)
-  case Merge(left: Value, right: Value)
+  case Merge(left: NeutralValue, right: Value)
   case Annotated(value: NeutralValue, annotatedType: Type)
   case NativeCall(function: NativeCallable, args: List[Value])
   // Represents a fixpoint thunk that may cause infinite unfolding
