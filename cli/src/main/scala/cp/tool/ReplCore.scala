@@ -45,7 +45,7 @@ private class ReplCore {
 
   }
 
-  private def moduleEnvironment: Environment[String, Type, Term] = module.importEnvironment
+  private def moduleEnvironment: Environment[String, Type, Term] = module.importEnvironment.merge(Prelude.environment)
 
   def iterate(source: String): Unit = {
 
@@ -88,17 +88,17 @@ private class ReplCore {
       def iterateInput(input: Definition | Statement | ExprTerm | ExprType): Unit = input match {
         case defn: Definition => defn match {
           case Definition.TermDef(name, termExpr, constraints) => {
-            val (term: Term, ty: Type) = termExpr.synthesize(using module.importEnvironment)
+            val (term: Term, ty: Type) = termExpr.synthesize(using moduleEnvironment)
             val evaluatedTerm = interpreter.eval(term)
             // println(s"  $name = ${evaluatedTerm} : ${ty.normalize}\n")
             println()
             module.addTerm(name, term)
           }
           case Definition.TypeDef(name, typeExpr, constraints) => {
-            val ty: Type = typeExpr.synthesize
+            val ty: Type = typeExpr.synthesize(using moduleEnvironment)
             // println(s"  type $name = ${ty.normalize}\n")
             println()
-            environment = environment.addTypeVar(name, ty)
+            module.addType(name, ty)
           }
 
           case Definition.SubmodDef(_, _) => ???
@@ -124,7 +124,7 @@ private class ReplCore {
           println(s"  ${interpreter.eval(term)(using environment)} : ${ty.normalize}\n")
         }
         case tyExpr: ExprType => try {
-          val ty = tyExpr.synthesize
+          val ty = tyExpr.synthesize(using moduleEnvironment)
           println(s"  type $ty\n")
         } catch {
           case _: Throwable => {

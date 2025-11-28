@@ -1,8 +1,8 @@
 package cp.core
 
-import cp.common.{ImmutTypeEnvironment, TypeEnvironment, TypeOnlyEnvironment}
-import cp.error.CoreErrorKind.*
+import cp.common.TypeEnvironment
 import cp.core.PrimitiveType.*
+import cp.error.CoreErrorKind.*
 import cp.util.IdentifiedByString
 
 import scala.annotation.targetName
