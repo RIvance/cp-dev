@@ -233,4 +233,107 @@ class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension
       """ >>> StringValue("((4 + 8) * 4) is 48").toTerm
     }
   }
+
+  test("pattern matching - isZero function") {
+    module("""
+      def isZero(n: Int): Bool = match n {
+        case 0 => true;
+        case _ => false;
+      };
+    """) { implicit interpreter =>
+      "isZero(0)" >>> (BoolValue(true).toTerm, BoolType.toType)
+      "isZero(42)" >>> (BoolValue(false).toTerm, BoolType.toType)
+    }
+  }
+
+// TODO: We do not have grammar for tuple type yet
+//  test("pattern matching - tuple swap") {
+//    module("""
+//      def swap[A, B](p: (A, B)): (B, A) = match p {
+//        case (x, y) => ((y, x));
+//      };
+//    """) { implicit interpreter =>
+//      "swap[Int, String](((1, \"hello\")))" >>> (
+//        Term.Tuple(List(StringValue("hello").toTerm, IntValue(1).toTerm)),
+//        Type.Tuple(List(StringType.toType, IntType.toType))
+//      )
+//    }
+//  }
+
+  test("pattern matching - option-like type") {
+    module("""
+      type Option[A] = { tag: String; value: A };
+      
+      def some[A](x: A): Option[A] = { tag = "some"; value = x };
+      def none[A]: Option[A] = { tag = "none"; value = 0 };
+      
+      def getOrElse[A](opt: Option[A], default: A): A = match opt {
+        case { tag = "some"; value = v } => v;
+        case { tag = "none"; value = _ } => default;
+      };
+    """) { implicit interpreter =>
+      "getOrElse[Int](some[Int](42), 0)" >>> (IntValue(42).toTerm, IntType.toType)
+      "getOrElse[Int](none[Int], 99)" >>> (IntValue(99).toTerm, IntType.toType)
+    }
+  }
+
+  test("pattern matching - record field shorthand") {
+    module("""
+      type Point = { x: Int; y: Int };
+      
+      def getX(p: Point): Int = match p {
+        case { x = x; y = _ } => x;
+      };
+      
+      def getY(p: Point): Int = match p {
+        case { x = _; y = y } => y;
+      };
+    """) { implicit interpreter =>
+      "getX({ x = 10; y = 20 })" >>> (IntValue(10).toTerm, IntType.toType)
+      "getY({ x = 10; y = 20 })" >>> (IntValue(20).toTerm, IntType.toType)
+    }
+  }
+
+  test("pattern matching - nested structures") {
+    module("""
+      type Nested = { outer: { inner: Int } };
+      
+      def getInner(n: Nested): Int = match n {
+        case { outer = { inner = x } } => x;
+      };
+    """) { implicit interpreter =>
+      "getInner({ outer = { inner = 42 } })" >>> (IntValue(42).toTerm, IntType.toType)
+    }
+  }
+
+  test("pattern matching - factorial with pattern") {
+    module("""
+      def fac(n: Int): Int = match n {
+        case 0 => 1;
+        case m => m * fac(m - 1);
+      };
+    """) { implicit interpreter =>
+      "fac(5)" >>> (IntValue(120).toTerm, IntType.toType)
+      "fac(0)" >>> (IntValue(1).toTerm, IntType.toType)
+    }
+  }
+
+  test("pattern matching - tuple of records") {
+    module("""
+      type Person = { name: String; age: Int };
+      
+      def comparePeople(p1: Person, p2: Person): String = match ((p1, p2)) {
+        case ({ name = n1; age = a1 }, { name = n2; age = a2 }) => {
+          if a1 > a2 then n1 ++ " is older"
+          else if a2 > a1 then n2 ++ " is older"
+          else "Same age"
+        };
+      };
+    """) { implicit interpreter =>
+      """comparePeople({ name = "Alice"; age = 30 }, { name = "Bob"; age = 25 })""" >>> (
+        StringValue("Alice is older").toTerm,
+        StringType.toType
+      )
+    }
+  }
 }

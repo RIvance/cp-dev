@@ -67,10 +67,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case Rename(record: ExprTerm, renames: Map[String, String])
 
-  case FoldFixpoint(fixpointType: ExprType, body: ExprTerm)
-
-  case UnfoldFixpoint(fixpointType: ExprType, term: ExprTerm)
-
   // See `cp.core.Term.Do` for explanation.
   case Do(expr: ExprTerm, body: ExprTerm)
 
@@ -794,8 +790,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
     
     case ExprTerm.Rename(_, _) => ???
-    case ExprTerm.FoldFixpoint(_, _) => ???
-    case ExprTerm.UnfoldFixpoint(_, _) => ???
     case ExprTerm.ArrayLiteral(_) => ???
     
     case ExprTerm.Do(expr, body) => {
@@ -844,8 +838,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case Remove(record, _) => record.contains(name)
     case Diff(left, right) => left.contains(name) || right.contains(name)
     case Rename(record, _) => record.contains(name)
-    case FoldFixpoint(_, body) => body.contains(name)
-    case UnfoldFixpoint(_, term) => term.contains(name)
     case Do(expr, body) => expr.contains(name) || body.contains(name)
     case ArrayLiteral(elements) => elements.exists(_.contains(name))
     case Span(term, _) => term.contains(name)
@@ -963,14 +955,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       ExprTerm.Rename(record.subst(name, replacement), renames)
     }
     
-    case ExprTerm.FoldFixpoint(fixTy, body) => {
-      ExprTerm.FoldFixpoint(fixTy, body.subst(name, replacement))
-    }
-    
-    case ExprTerm.UnfoldFixpoint(fixTy, term) => {
-      ExprTerm.UnfoldFixpoint(fixTy, term.subst(name, replacement))
-    }
-    
     case ExprTerm.Do(expr, body) => {
       ExprTerm.Do(expr.subst(name, replacement), body.subst(name, replacement))
     }
@@ -1018,8 +1002,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case _: Remove => s"(${this.toString})"
     case _: Diff => s"(${this.toString})"
     case _: Rename => s"(${this.toString})"
-    case _: FoldFixpoint => s"(${this.toString})"
-    case _: UnfoldFixpoint => s"(${this.toString})"
     case _: Do => s"(${this.toString})"
     case _ => this.toString
   }
@@ -1085,10 +1067,6 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Diff(left, right) => s"${left.toStringAtom} \\ ${right.toStringAtom}"
     case ExprTerm.Rename(record, renames) => 
       s"${record.toStringAtom} rename { ${renames.map { case (k, v) => s"$k -> $v" }.mkString(", ")} }"
-    case ExprTerm.FoldFixpoint(fixTy, body) => 
-      s"fold $fixTy ${body.toStringAtom}"
-    case ExprTerm.UnfoldFixpoint(fixTy, term) => 
-      s"unfold $fixTy ${term.toStringAtom}"
     case ExprTerm.Do(expr, body) => 
       s"do ${expr.toStringAtom} in ${body.toString}"
     case ExprTerm.ArrayLiteral(elements) => 

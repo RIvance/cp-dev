@@ -89,10 +89,10 @@ type
     |   <assoc=left> lhs=type Backslash rhs=type            # typeDifference
     |   <assoc=right> domain=type Arrow codomain=type       # typeArrow
     |   ForAll typeParamList Dot codomain=type              # typeForAll
-    |   Fix name=Identifier Dot type                      # typeFix
+    |   Fix name=Identifier Dot type                        # typeFix
     |   TraitType Less inType=type (FatArrow outType=type)? Greater        # typeTrait
     |   RefType typeWithSort                                # typeRef
-    |   Out sortName=Identifier                           # typeOut
+    |   Out sortName=Identifier                             # typeOut
     |   ty=typeWithSort BracketOpen args+=typeWithSort (Comma args+=typeWithSort)* BracketClose     # typeApp
     |   ty=typeWithSort args+=typeWithSort*                 # typeSpine
     ;
@@ -216,14 +216,14 @@ pattern
     |   BoolLit                             # patternBool
     |   Unit                                # patternUnit
     |   Dollar Identifier params+=termParamGroup*                           # patternCtor
-    |   ParenOpen patterns+=pattern Comma patterns+=pattern+ ParenClose     # patternTuple
+    |   ParenOpen patterns+=pattern (Comma patterns+=pattern)+ ParenClose   # patternTuple
     |   BraceOpen fieldPatterns+=recordPatternField (Semicolon fieldPatterns+=recordPatternField)* BraceClose   # patternRecord
     ;
 
 recordPatternField
     :   name=Identifier Assign pattern   # recordPatternFieldMatching
     |   name=Identifier                  # recordPatternFieldBinding
-    |   Underscore                      # recordPatternFieldWildcard
+    |   Underscore                       # recordPatternFieldWildcard
     ;
 
 dotExpr
