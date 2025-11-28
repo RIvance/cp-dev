@@ -2,6 +2,7 @@ package cp.interpreter
 
 import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
+import cp.core.matchValue
 import cp.util.{WorkList, Workable}
 import cp.util.WorkList.*
 
@@ -204,6 +205,30 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
         }
       } yield result
 
+      case Term.Match(scrutineeTerm, clauses) => for {
+        scrutineeValue <- TaskNode(Eval(scrutineeTerm))
+        result <- {
+          // Try each clause in order until one matches
+          val matchedClause = clauses.find { clause =>
+            clause.patterns.headOption.exists(_.matchValue(scrutineeValue)(using env).isDefined)
+          }
+
+          matchedClause match {
+            case Some(clause) =>
+              // Get the bindings from the first pattern
+              val bindings = clause.patterns.head.matchValue(scrutineeValue)(using env).get
+              // Extend environment with bindings
+              val extendedEnv = bindings.foldLeft(env) { case (acc, (name, value)) =>
+                acc.addValueVar(name, value)
+              }
+              // Evaluate the body with extended environment
+              TaskNode(Eval(clause.body)(using extendedEnv, unfoldingSuppressor))
+            case None =>
+              throw new RuntimeException(s"No matching pattern for value: $scrutineeValue")
+          }
+        }
+      } yield result
+
       case Term.ArrayLiteral(elements) => {
         def evalElements(
           remaining: List[Term], accumulated: List[Value]
@@ -215,32 +240,6 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
           } yield result
         }
         evalElements(elements, List.empty)
-      }
-
-      case Term.FoldFixpoint(fixpointType, bodyTerm) => for {
-        bodyValue <- TaskNode(Eval(bodyTerm))
-      } yield bodyValue // Folding is essentially wrapping, represented by the value itself
-
-      case Term.UnfoldFixpoint(fixpointType, foldedTerm) => {
-        if fixpointType.isTopLike then {
-          Completed(Value.Primitive(PrimitiveValue.UnitValue))
-        } else for {
-          foldedValue <- TaskNode(Eval(foldedTerm))
-          result <- (foldedValue match {
-            case value => {
-              // Unfold by substituting the fixpoint type variable with the fixpoint itself
-              val unfoldedType = fixpointType match {
-                case Type.Fixpoint(fixpointName, fixpointBody) => fixpointBody.subst(fixpointName, fixpointType)
-                case _ => fixpointType
-              }
-              // Cast the value to the unfolded type
-              value.cast(unfoldedType)(using env) match {
-                case Some(castedValue) => Completed(castedValue)
-                case None => throw new RuntimeException(s"Cannot unfold $value to type $unfoldedType")
-              }
-            }
-          }: WorkList[BigStepTask, Value])
-        } yield result
       }
 
       case Term.Do(exprTerm, bodyTerm) => for {

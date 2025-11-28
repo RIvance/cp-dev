@@ -2,6 +2,7 @@ package cp.interpreter
 
 import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
+import cp.core.matchValue
 
 import scala.util.control.TailCalls.{TailRec, done, tailcall}
 
@@ -192,6 +193,30 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
         }
       } yield result
 
+      case Term.Match(scrutineeTerm, clauses) => for {
+        scrutineeValue <- scrutineeTerm.evalTramp
+        result <- {
+          // Try each clause in order until one matches
+          val matchedClause = clauses.find { clause =>
+            clause.patterns.headOption.exists(_.matchValue(scrutineeValue)(using env).isDefined)
+          }
+
+          matchedClause match {
+            case Some(clause) =>
+              // Get the bindings from the first pattern
+              val bindings = clause.patterns.head.matchValue(scrutineeValue)(using env).get
+              // Extend environment with bindings
+              val extendedEnv = bindings.foldLeft(env) { case (acc, (name, value)) =>
+                acc.addValueVar(name, value)
+              }
+              // Evaluate the body with extended environment
+              tailcall(clause.body.evalTramp(using extendedEnv, unfoldingSuppressor))
+            case None =>
+              throw new RuntimeException(s"No matching pattern for value: $scrutineeValue")
+          }
+        }
+      } yield result
+
       case Term.ArrayLiteral(elements) => {
         def evalElements(remaining: List[Term], accumulated: List[Value]): TailRec[Value] = remaining match {
           case Nil => done(Value.Array(accumulated))
@@ -201,32 +226,6 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
           } yield result
         }
         tailcall(evalElements(elements, List.empty))
-      }
-
-      case Term.FoldFixpoint(fixpointType, bodyTerm) => for {
-        bodyValue <- bodyTerm.evalTramp
-      } yield bodyValue // Folding is essentially wrapping, represented by the value itself
-
-      case Term.UnfoldFixpoint(fixpointType, foldedTerm) => {
-        if fixpointType.isTopLike then {
-          done(Value.Primitive(PrimitiveValue.UnitValue))
-        } else for {
-          foldedValue <- foldedTerm.evalTramp
-          result <- foldedValue match {
-            case value => {
-              // Unfold by substituting the fixpoint type variable with the fixpoint itself
-              val unfoldedType = fixpointType match {
-                case Type.Fixpoint(fixpointName, fixpointBody) => fixpointBody.subst(fixpointName, fixpointType)
-                case _ => fixpointType
-              }
-              // Cast the value to the unfolded type
-              value.cast(unfoldedType) match {
-                case Some(castedValue) => done(castedValue)
-                case None => throw new RuntimeException(s"Cannot unfold $value to type $unfoldedType")
-              }
-            }
-          }
-        } yield result
       }
 
       case Term.Do(exprTerm, bodyTerm) => for {

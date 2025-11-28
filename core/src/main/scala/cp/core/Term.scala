@@ -41,13 +41,9 @@ enum Term extends IdentifiedByString {
   
   case IfThenElse(condition: Term, thenBranch: Term, elseBranch: Term)
   
-  // case Match(scrutinee: Term, clauses: List[Clause])
+  case Match(scrutinee: Term, clauses: List[Clause[Type, Term]])
 
   case ArrayLiteral(elements: List[Term])
-  
-  case FoldFixpoint(fixpointType: Type, body: Term)
-  
-  case UnfoldFixpoint(fixpointType: Type, term: Term)
 
   // `Do` term will ensure that `expr` is evaluated before `body`.
   //  It is useful when `expr` has side effects (e.g. native procedure calls).
@@ -174,9 +170,32 @@ enum Term extends IdentifiedByString {
         }
       }
 
+      case Match(scrutinee, clauses) => {
+        val scrutineeType = scrutinee.infer
+        if clauses.isEmpty then TypeNotMatch.raise {
+          "Match expression must have at least one clause"
+        }
+        // Check that all clauses have compatible types
+        val clauseTypes = clauses.map { clause =>
+          // Extend environment with pattern bindings
+          val bindings = clause.patterns.head.matchBindingTypes(scrutineeType)(using env)
+          val extendedEnv = bindings.foldLeft(env) { case (acc, (name, ty)) =>
+            acc.addValueVar(name, Term.Annotated(Term.Var(name), ty))
+          }
+          clause.body.infer(using extendedEnv)
+        }
+        // Find the common supertype of all clause types
+        clauseTypes.reduce { (ty1, ty2) =>
+          if ty1 == ty2 then ty1
+          else if ty1 <:< ty2 then ty2
+          else if ty2 <:< ty1 then ty1
+          else TypeNotMatch.raise {
+            s"Match clauses have incompatible types: ${ty1} and ${ty2}"
+          }
+        }
+      }
+
       case ArrayLiteral(_) => ???
-      case FoldFixpoint(_, _) => ???
-      case UnfoldFixpoint(_, _) => ???
       case Do(_, _) => ???
       case RefAddr(_, _) => ???
 
@@ -242,10 +261,9 @@ enum Term extends IdentifiedByString {
     case Diff(left, right) => Diff(f(left), f(right))
     case IfThenElse(condition, thenBranch, elseBranch) =>
       IfThenElse(f(condition), f(thenBranch), f(elseBranch))
-    // case Match(scrutinee, clauses) => Match(f(scrutinee), clauses.map(_.mapSubterms(f)))
+    case Match(scrutinee, clauses) =>
+      Match(f(scrutinee), clauses.map(c => Clause(c.patterns, f(c.body))))
     case ArrayLiteral(elements) => ArrayLiteral(elements.map(f))
-    case FoldFixpoint(fixpointType, body) => FoldFixpoint(fixpointType, f(body))
-    case UnfoldFixpoint(fixpointType, term) => UnfoldFixpoint(fixpointType, f(term))
     case Do(expr, body) => Do(f(expr), f(body))
     case RefAddr(_, _) => this
     case NativeFunctionCall(function, args) => NativeFunctionCall(function, args.map(f))
@@ -275,13 +293,11 @@ enum Term extends IdentifiedByString {
         thenBranch.mapTypes(f),
         elseBranch.mapTypes(f)
       )
-    // case Match(scrutinee, clauses) =>
-    //   Match(scrutinee.mapTypes(f), clauses.map(_.mapTypes(f)))
+    case Match(scrutinee, clauses) =>
+      Match(scrutinee.mapTypes(f), clauses.map { clause =>
+        Clause(clause.patterns.map(_.map(f)), clause.body.mapTypes(f))
+      })
     case ArrayLiteral(elements) => ArrayLiteral(elements.map(_.mapTypes(f)))
-    case FoldFixpoint(fixpointType, body) =>
-      FoldFixpoint(f(fixpointType), body.mapTypes(f))
-    case UnfoldFixpoint(fixpointType, term) =>
-      UnfoldFixpoint(f(fixpointType), term.mapTypes(f))
     case Do(expr, body) => Do(expr.mapTypes(f), body.mapTypes(f))
     case RefAddr(refType, address) => RefAddr(f(refType), address)
     case NativeFunctionCall(function, args) =>
@@ -392,11 +408,9 @@ enum Term extends IdentifiedByString {
     case Diff(left, right) => left.contains(name) || right.contains(name)
     case IfThenElse(cond, thenBr, elseBr) =>
       cond.contains(name) || thenBr.contains(name) || elseBr.contains(name)
-    // case Match(scrutinee, clauses) =>
-    //   scrutinee.contains(name) || clauses.exists(_.contains(name))
+    case Match(scrutinee, clauses) =>
+      scrutinee.contains(name) || clauses.exists(_.body.contains(name))
     case ArrayLiteral(elements) => elements.exists(_.contains(name))
-    case FoldFixpoint(_, body) => body.contains(name)
-    case UnfoldFixpoint(_, term) => term.contains(name)
     case Do(expr, body) => expr.contains(name) || body.contains(name)
     case RefAddr(_, _) => false
     case NativeFunctionCall(_, args) => args.exists(_.contains(name))
@@ -422,11 +436,9 @@ enum Term extends IdentifiedByString {
     case Diff(left, right) => left.contains(term) || right.contains(term)
     case IfThenElse(cond, thenBr, elseBr) =>
       cond.contains(term) || thenBr.contains(term) || elseBr.contains(term)
-    // case Match(scrutinee, clauses) =>
-    //   scrutinee.contains(term) || clauses.exists(_.contains(term))
+    case Match(scrutinee, clauses) =>
+      scrutinee.contains(term) || clauses.exists(_.body.contains(term))
     case ArrayLiteral(elements) => elements.exists(_.contains(term))
-    case FoldFixpoint(_, body) => body.contains(term)
-    case UnfoldFixpoint(_, t) => t.contains(term)
     case Do(expr, body) => expr.contains(term) || body.contains(term)
     case RefAddr(_, _) => false
     case NativeFunctionCall(_, args) => args.exists(_.contains(term))
@@ -488,18 +500,14 @@ enum Term extends IdentifiedByString {
 
     case Diff(left, right) => s"$left \\ $right"
 
-    // case Match(scrutinee, clauses) =>
-    //   s"match $scrutinee {\n${clauses.map(clause => s"  $clause").mkString("\n")}\n}"
+    case Match(scrutinee, clauses) =>
+      s"match ${scrutinee.toAtomString} { ${clauses.map(c => s"${c.patterns.mkString(", ")} => ${c.body}").mkString(" | ")} }"
 
     case IfThenElse(condition, thenBranch, elseBranch) => {
       s"if $condition then $thenBranch else $elseBranch"
     }
 
     case ArrayLiteral(elements) => s"[${elements.map(_.toString).mkString(", ")}]"
-
-    case FoldFixpoint(fixpointType, body) => s"fold[$fixpointType] $body"
-
-    case UnfoldFixpoint(fixpointType, term) => s"unfold[$fixpointType] $term"
 
     case Do(expr, body) => s"do { $expr; $body }"
 

@@ -37,7 +37,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
 
   case Merge(left: ExprTerm, right: ExprTerm, bias: MergeBias = MergeBias.Neutral)
 
-  // case Match(scrutinee: ExprTerm, cases: List[(Pattern, ExprTerm)])
+  case Match(scrutinee: ExprTerm, cases: List[(Pattern[ExprType], ExprTerm)])
 
   case Projection(record: ExprTerm, field: String)
 
@@ -211,7 +211,50 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
         s"If-then-else term does not check against its type: $ifTerm : $resultType"
       } else (ifTerm, resultType)
     }
-    
+
+    case ExprTerm.Match(scrutineeExpr, cases) => {
+      if cases.isEmpty then TypeNotMatch.raise {
+        "Match expression must have at least one case"
+      }
+
+      val (scrutineeTerm, scrutineeType) = scrutineeExpr.synthesize
+
+      // Process each case
+      val processedCases = cases.map { case (pattern, bodyExpr) =>
+        // Convert ExprType pattern to Type pattern
+        val typedPattern = pattern.map(_.synthesize)
+
+        // Get bindings from the pattern
+        val bindings = typedPattern.matchBindingTypes(scrutineeType)(using env)
+
+        // Extend environment with pattern bindings
+        val extendedEnv = bindings.foldLeft(env) { case (acc, (name, ty)) =>
+          acc.addValueVar(name, Term.Annotated(Term.Var(name), ty))
+        }
+
+        // Synthesize the body with extended environment
+        val (bodyTerm, bodyType) = bodyExpr.synthesize(using extendedEnv)
+
+        (Clause(List(typedPattern), bodyTerm), bodyType)
+      }
+
+      // Check that all cases have compatible types
+      val clauseTypes = processedCases.map(_._2)
+      val resultType = clauseTypes.reduce { (ty1, ty2) =>
+        if ty1 == ty2 then ty1
+        else if ty1 <:< ty2 then ty2
+        else if ty2 <:< ty1 then ty1
+        else TypeNotMatch.raise {
+          s"Match cases have incompatible types: $ty1 and $ty2"
+        }
+      }
+
+      val matchTerm = Term.Match(scrutineeTerm, processedCases.map(_._1))
+      if !matchTerm.check(resultType) then TypeNotMatch.raise {
+        s"Match term does not check against its type: $matchTerm : $resultType"
+      } else (matchTerm, resultType)
+    }
+
     case ExprTerm.LetIn(name, value, tyExprOpt, body) => {
       val (valueTerm, valueType) = value.synthesize
       val ty = tyExprOpt match {
@@ -782,6 +825,11 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case Fixpoint(fixName, _, recursiveBody) => fixName != name && recursiveBody.contains(name)
     case IfThenElse(cond, thenBr, elseBr) => cond.contains(name) || thenBr.contains(name) || elseBr.contains(name)
     case LetIn(letName, value, _, body) => value.contains(name) || (letName != name && body.contains(name))
+    case Match(scrutinee, cases) => scrutinee.contains(name) || cases.exists { case (pattern, body) =>
+      // Check if name is bound by pattern - if so, only check scrutinee
+      val boundNames = pattern.collectNames
+      if boundNames.contains(name) then false else body.contains(name)
+    }
     case Record(fields) => fields.exists { case (_, field) => field.contains(name) }
     case Tuple(elements) => elements.exists(_.contains(name))
     case Merge(left, right, _) => left.contains(name) || right.contains(name)
@@ -837,6 +885,19 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
       )
     }
     
+    case ExprTerm.Match(scrutinee, cases) => {
+      ExprTerm.Match(
+        scrutinee.subst(name, replacement),
+        cases.map { case (pattern, body) =>
+          val boundNames = pattern.collectNames
+          if boundNames.contains(name) then
+            (pattern, body)  // name is bound by pattern, don't substitute in body
+          else
+            (pattern, body.subst(name, replacement))
+        }
+      )
+    }
+
     case ExprTerm.LetIn(letName, value, tyOpt, body) => {
       if letName == name then ExprTerm.LetIn(letName, value.subst(name, replacement), tyOpt, body)
       else ExprTerm.LetIn(letName, value.subst(name, replacement), tyOpt, body.subst(name, replacement))
@@ -923,6 +984,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     }
   }
 
+
   private def collectOverrideFields: Set[String] = this match {
     case ExprTerm.Span(term, _) => term.collectOverrideFields
     case ExprTerm.OpenIn(_, body) => body.collectOverrideFields
@@ -943,6 +1005,7 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case _: TypeLambda => s"(${this.toString})"
     case _: Fixpoint => s"(${this.toString})"
     case _: IfThenElse => s"(${this.toString})"
+    case _: Match => s"(${this.toString})"
     case _: LetIn => s"(${this.toString})"
     case _: Merge => s"(${this.toString})"
     case _: TypeApply => s"(${this.toString})"
@@ -975,6 +1038,8 @@ enum ExprTerm extends OptionalSpanned[ExprTerm] {
     case ExprTerm.Fixpoint(name, ty, recursiveBody) => s"fix $name: $ty = λx. ${recursiveBody.toString}"
     case ExprTerm.IfThenElse(condition, thenBranch, elseBranch) => 
       s"if ${condition.toString} then ${thenBranch.toString} else ${elseBranch.toString}"
+    case ExprTerm.Match(scrutinee, cases) =>
+      s"match ${scrutinee.toStringAtom} { ${cases.map { case (pat, body) => s"$pat => ${body.toString}" }.mkString(" | ")} }"
     case ExprTerm.LetIn(name, value, tyOpt, body) => tyOpt match {
       case Some(ty) => s"let $name: $ty = ${value.toString} in ${body.toString}"
       case None => s"let $name = ${value.toString} in ${body.toString}"

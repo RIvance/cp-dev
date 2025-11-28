@@ -2,6 +2,7 @@ package cp.interpreter
 
 import cp.common.Environment
 import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
+import cp.core.matchValue
 
 class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModules*) {
 
@@ -166,33 +167,33 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         }
       }
 
+      case Term.Match(scrutineeTerm, clauses) => {
+        val scrutineeValue = scrutineeTerm.evalDirect
+
+        // Try each clause in order until one matches
+        val matchedClause = clauses.find { clause =>
+          // For now, we only support single-pattern clauses
+          clause.patterns.headOption.exists(_.matchValue(scrutineeValue)(using env).isDefined)
+        }
+
+        matchedClause match {
+          case Some(clause) =>
+            // Get the bindings from the first pattern
+            val bindings = clause.patterns.head.matchValue(scrutineeValue)(using env).get
+            // Extend environment with bindings
+            val extendedEnv = bindings.foldLeft(env) { case (acc, (name, value)) =>
+              acc.addValueVar(name, value)
+            }
+            // Evaluate the body with extended environment
+            clause.body.evalDirect(using extendedEnv, unfoldingSuppressor)
+          case None =>
+            throw new RuntimeException(s"No matching pattern for value: $scrutineeValue")
+        }
+      }
+
       case Term.ArrayLiteral(elements) => {
         val evaluatedElements = elements.map(_.evalDirect)
         Value.Array(evaluatedElements)
-      }
-
-      case Term.FoldFixpoint(fixpointType, bodyTerm) => {
-        val bodyValue = bodyTerm.evalDirect
-        bodyValue // Folding is essentially wrapping, represented by the value itself
-      }
-
-      case Term.UnfoldFixpoint(fixpointType, foldedTerm) => {
-        if fixpointType.isTopLike then {
-          Value.Primitive(PrimitiveValue.UnitValue)
-        } else foldedTerm.evalDirect match {
-          case value => {
-            // Unfold by substituting the fixpoint type variable with the fixpoint itself
-            val unfoldedType = fixpointType match {
-              case Type.Fixpoint(fixpointName, fixpointBody) => fixpointBody.subst(fixpointName, fixpointType)
-              case _ => fixpointType
-            }
-            // Cast the value to the unfolded type
-            value.cast(unfoldedType) match {
-              case Some(castedValue) => castedValue
-              case None => throw new RuntimeException(s"Cannot unfold $value to type $unfoldedType")
-            }
-          }
-        }
       }
 
       case Term.Do(exprTerm, bodyTerm) => {
