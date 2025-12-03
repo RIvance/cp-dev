@@ -1,8 +1,8 @@
 package cp.interpreter
 
 import cp.common.Environment
-import cp.core.{MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
-import cp.core.matchValue
+import cp.core.{Clause, MergeBias, Module, NeutralValue, PrimitiveType, PrimitiveValue, Term, Type, Value}
+import cp.core.{matchValue, matchBindingTypes}
 import cp.util.{WorkList, Workable}
 import cp.util.WorkList.*
 
@@ -414,15 +414,428 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
   private case class InferTerm(term: Term)(
     using termEnv: Environment[String, Type, Term]
   ) extends BigStepTask[Type] {
-    // TODO: This is still a naive implementation.
-    //  We should implement the entire type inference algorithm using worklists.
-    override def step: WorkList[BigStepTask, Type] = Completed(term.infer(using termEnv))
+    override def step: WorkList[BigStepTask, Type] = {
+      val inferredType: WorkList[BigStepTask, Type] = term match {
+        case Term.Var(name) => termEnv.values.get(name) match {
+          case Some(term) => TaskNode(InferTerm(term))
+          case None => throw new RuntimeException(s"Variable '$name' is not bound in the environment.")
+        }
+
+        case Term.Symbol(_, ty) => Completed(ty)
+
+        case Term.Annotated(_, ty) => Completed(ty)
+
+        case Term.Primitive(value) => Completed(Type.Primitive(value.ty))
+
+        case Term.Apply(func, arg) => for {
+          fnType <- TaskNode(InferTerm(func))
+          argType <- TaskNode(InferTerm(arg))
+          result <- (fnType match {
+            case Type.Arrow(paramType, returnType, _) =>
+              if !(argType <:< paramType) then {
+                throw new RuntimeException(s"Expected argument type: ${paramType}, but got: ${argType}")
+              } else Completed(returnType)
+            case fnType @ Type.Intersection(_, _) =>
+              fnType.testApplicationReturn(argType) match {
+                case Some(returnType) => Completed(returnType)
+                case None => throw new RuntimeException(
+                  s"Function type ${fnType} cannot be applied to argument type ${argType}"
+                )
+              }
+            case other => throw new RuntimeException(s"Expected function type, but got: ${other}")
+          }): WorkList[BigStepTask, Type]
+        } yield result
+
+        case Term.TypeApply(term, tyArg) => for {
+          termType <- TaskNode(InferTerm(term))
+          result <- (termType match {
+            case Type.Forall(param, body, _) => Completed(body.subst(param, tyArg))
+            case other => throw new RuntimeException(s"Expected polymorphic type, but got: ${other}")
+          }): WorkList[BigStepTask, Type]
+        } yield result
+
+        case Term.Lambda(param, paramType, body, isCoe) => {
+          val extendedEnv = termEnv.addValueVar(param, Term.Annotated(Term.Var(param), paramType))
+          for {
+            bodyType <- TaskNode(InferTerm(body)(using extendedEnv))
+            result = Type.Arrow(paramType, bodyType, isCoe)
+          } yield result
+        }
+
+        case Term.TypeLambda(param, body) => {
+          val extendedEnv = termEnv.addTypeVar(param, Type.Var(param))
+          for {
+            bodyType <- TaskNode(InferTerm(body)(using extendedEnv))
+            result = Type.Forall(param, bodyType)
+          } yield result
+        }
+
+        case Term.Fixpoint(name, ty, body) => {
+          val extendedEnv = termEnv.addValueVar(name, Term.Annotated(Term.Var(name), ty))
+          for {
+            bodyType <- TaskNode(InferTerm(body)(using extendedEnv))
+            result <- ({
+              if !(bodyType <:< ty) then {
+                throw new RuntimeException(
+                  s"Body type `${bodyType}` does not match annotated type `${ty}` in fixpoint"
+                )
+              } else Completed(bodyType)
+            }): WorkList[BigStepTask, Type]
+          } yield result
+        }
+
+        case Term.Projection(record, field) => for {
+          recordType <- TaskNode(InferTerm(record))
+          result <- (recordType match {
+            case Type.Record(fieldTypes) => fieldTypes.get(field) match {
+              case Some(fieldType) => Completed(fieldType)
+              case None => throw new RuntimeException(
+                s"Field '${field}' does not exist in record type"
+              )
+            }
+            case other => throw new RuntimeException(s"Expected record type, but got: ${other}")
+          }): WorkList[BigStepTask, Type]
+        } yield result
+
+        case Term.Record(fields) => {
+          if fields.isEmpty then Completed(Type.unit)
+          else {
+            val fieldList = fields.toList
+            def inferFields(remaining: List[(String, Term)], acc: Map[String, Type]): WorkList[BigStepTask, Type] = {
+              remaining match {
+                case Nil => Completed(Type.Record(acc))
+                case (name, term) :: rest => for {
+                  fieldType <- TaskNode(InferTerm(term))
+                  result <- inferFields(rest, acc + (name -> fieldType))
+                } yield result
+              }
+            }
+            inferFields(fieldList, Map.empty)
+          }
+        }
+
+        case Term.Tuple(elements) => {
+          if elements.isEmpty then Completed(Type.unit)
+          else {
+            def inferElements(remaining: List[Term], acc: List[Type]): WorkList[BigStepTask, Type] = {
+              remaining match {
+                case Nil => Completed(Type.Tuple(acc))
+                case head :: tail => for {
+                  elementType <- TaskNode(InferTerm(head))
+                  result <- inferElements(tail, acc :+ elementType)
+                } yield result
+              }
+            }
+            inferElements(elements, List.empty)
+          }
+        }
+
+        case Term.Merge(left, right, MergeBias.Left) =>
+          TaskNode(InferTerm(Term.Merge(left, Term.Diff(right, left), MergeBias.Neutral)))
+
+        case Term.Merge(left, right, MergeBias.Right) =>
+          TaskNode(InferTerm(Term.Merge(Term.Diff(left, right), right, MergeBias.Neutral)))
+
+        case Term.Merge(left, right, MergeBias.Neutral) => for {
+          leftType <- TaskNode(InferTerm(left))
+          rightType <- TaskNode(InferTerm(right))
+          result = leftType merge rightType
+        } yield result
+
+        case Term.Diff(left, right) => for {
+          leftType <- TaskNode(InferTerm(left))
+          rightType <- TaskNode(InferTerm(right))
+          result = leftType diff rightType
+        } yield result
+
+        case Term.IfThenElse(_, thenBranch, elseBranch) => for {
+          thenType <- TaskNode(InferTerm(thenBranch))
+          elseType <- TaskNode(InferTerm(elseBranch))
+          result <- ({
+            if thenType == elseType then Completed(thenType)
+            else if thenType <:< elseType then Completed(elseType)
+            else if elseType <:< thenType then Completed(thenType)
+            else throw new RuntimeException(
+              s"Branches of IfThenElse have incompatible types: ${thenType} and ${elseType}"
+            )
+          }): WorkList[BigStepTask, Type]
+        } yield result
+
+        case Term.Match(scrutinee, clauses) => {
+          if clauses.isEmpty then {
+            throw new RuntimeException("Match expression must have at least one clause")
+          }
+          for {
+            scrutineeType <- TaskNode(InferTerm(scrutinee))
+            clauseTypes <- {
+              def inferClauses(remaining: List[Clause[Type, Term]], acc: List[Type]): WorkList[BigStepTask, List[Type]] = {
+                remaining match {
+                  case Nil => Completed(acc)
+                  case clause :: rest => {
+                    val bindings = clause.patterns.head.matchBindingTypes(scrutineeType)(using termEnv)
+                    val extendedEnv = bindings.foldLeft(termEnv) { case (accEnv, (name, ty)) =>
+                      accEnv.addValueVar(name, Term.Annotated(Term.Var(name), ty))
+                    }
+                    for {
+                      clauseType <- TaskNode(InferTerm(clause.body)(using extendedEnv))
+                      result <- inferClauses(rest, acc :+ clauseType)
+                    } yield result
+                  }
+                }
+              }
+              inferClauses(clauses, List.empty)
+            }
+            result <- ({
+              val commonType = clauseTypes.reduce { (ty1, ty2) =>
+                if ty1 == ty2 then ty1
+                else if ty1 <:< ty2 then ty2
+                else if ty2 <:< ty1 then ty1
+                else throw new RuntimeException(
+                  s"Match clauses have incompatible types: ${ty1} and ${ty2}"
+                )
+              }
+              Completed(commonType)
+            }): WorkList[BigStepTask, Type]
+          } yield result
+        }
+
+        case Term.ArrayLiteral(elements) => {
+          if elements.isEmpty then {
+            Completed(Type.Array(Type.Primitive(PrimitiveType.TopType)))
+          } else {
+            def inferElements(remaining: List[Term], accType: Option[Type]): WorkList[BigStepTask, Type] = {
+              remaining match {
+                case Nil => accType match {
+                  case Some(ty) => Completed(Type.Array(ty))
+                  case None => Completed(Type.Array(Type.Primitive(PrimitiveType.TopType)))
+                }
+                case head :: tail => for {
+                  elementType <- TaskNode(InferTerm(head))
+                  commonType = accType match {
+                    case None => elementType
+                    case Some(ty) =>
+                      if ty == elementType then ty
+                      else if ty <:< elementType then elementType
+                      else if elementType <:< ty then ty
+                      else throw new RuntimeException(
+                        s"Array elements have incompatible types: ${ty} and ${elementType}"
+                      )
+                  }
+                  result <- inferElements(tail, Some(commonType))
+                } yield result
+              }
+            }
+            inferElements(elements, None)
+          }
+        }
+
+        case Term.Do(expr, body) => for {
+          _ <- TaskNode(InferTerm(expr))
+          bodyType <- TaskNode(InferTerm(body))
+        } yield bodyType
+
+        case Term.RefAddr(refType, address) => Completed(refType)
+
+        case Term.NativeFunctionCall(function, args) => {
+          if args.length > function.arity then {
+            throw new RuntimeException(
+              s"Too many arguments for native function: expected at most ${function.arity}, got ${args.length}"
+            )
+          }
+          val paramTypes = function.paramTypes
+          def checkArgs(remaining: List[(Term, Type)]): WorkList[BigStepTask, Unit] = {
+            remaining match {
+              case Nil => Completed(())
+              case (arg, paramType) :: rest => for {
+                argType <- TaskNode(InferTerm(arg))
+                _ <- ({
+                  if !(argType <:< paramType) then {
+                    throw new RuntimeException(s"Expected argument type: ${paramType}, but got: ${argType}")
+                  } else Completed(())
+                }): WorkList[BigStepTask, Unit]
+                result <- checkArgs(rest)
+              } yield result
+            }
+          }
+          for {
+            _ <- checkArgs(args.zip(paramTypes).toList)
+            result = {
+              if args.length == function.arity then {
+                function.returnType
+              } else {
+                paramTypes.drop(args.length).foldRight(function.returnType) {
+                  (paramType, acc) => Type.Arrow(paramType, acc)
+                }
+              }
+            }
+          } yield result
+        }
+
+        case Term.NativeProcedureCall(procedure, args) => {
+          if args.length > procedure.arity then {
+            throw new RuntimeException(
+              s"Too many arguments for native procedure: expected at most ${procedure.arity}, got ${args.length}"
+            )
+          }
+          val paramTypes = procedure.paramTypes
+          def checkArgs(remaining: List[(Term, Type)]): WorkList[BigStepTask, Unit] = {
+            remaining match {
+              case Nil => Completed(())
+              case (arg, paramType) :: rest => for {
+                argType <- TaskNode(InferTerm(arg))
+                _ <- ({
+                  if !(argType <:< paramType) then {
+                    throw new RuntimeException(s"Expected argument type: ${paramType}, but got: ${argType}")
+                  } else Completed(())
+                }): WorkList[BigStepTask, Unit]
+                result <- checkArgs(rest)
+              } yield result
+            }
+          }
+          for {
+            _ <- checkArgs(args.zip(paramTypes).toList)
+            result = {
+              if args.length == procedure.arity then {
+                procedure.returnType
+              } else {
+                paramTypes.drop(args.length).foldRight(procedure.returnType) {
+                  (paramType, acc) => Type.Arrow(paramType, acc)
+                }
+              }
+            }
+          } yield result
+        }
+      }
+
+      // Normalize the inferred type
+      for {
+        ty <- inferredType
+        normalized = ty.normalize(using termEnv.typeEnv)
+      } yield normalized
+    }
   }
 
   private case class InferValue(value: Value)(
     using env: Env
   ) extends BigStepTask[Type] {
-    // TODO: This is still a naive implementation. Same as above.
-    override def step: WorkList[BigStepTask, Type] = Completed(value.infer(using env))
+    override def step: WorkList[BigStepTask, Type] = value match {
+      case Value.Primitive(primitiveValue) => Completed(Type.Primitive(primitiveValue.ty))
+
+      case Value.Closure(_, param, paramType, _, returnType, _) =>
+        Completed(Type.Arrow(paramType, returnType))
+
+      case Value.TypeClosure(_, typeParam, _, returnType) =>
+        Completed(Type.Forall(typeParam, returnType, Set.empty))
+
+      case Value.Record(fields) => {
+        val fieldNames = fields.keys.toList
+        def inferFields(remaining: List[String], acc: Map[String, Type]): WorkList[BigStepTask, Type] = {
+          remaining match {
+            case Nil => Completed(Type.Record(acc))
+            case name :: rest => for {
+              fieldType <- TaskNode(InferValue(fields(name)))
+              result <- inferFields(rest, acc + (name -> fieldType))
+            } yield result
+          }
+        }
+        inferFields(fieldNames, Map.empty)
+      }
+
+      case Value.Tuple(elements) => {
+        def inferElements(remaining: List[Value], acc: List[Type]): WorkList[BigStepTask, Type] = {
+          remaining match {
+            case Nil => Completed(Type.Tuple(acc))
+            case head :: tail => for {
+              elementType <- TaskNode(InferValue(head))
+              result <- inferElements(tail, acc :+ elementType)
+            } yield result
+          }
+        }
+        inferElements(elements, List.empty)
+      }
+
+      case Value.Array(elements) if elements.nonEmpty => for {
+        elementType <- TaskNode(InferValue(elements.head))
+        result = Type.Array(elementType)
+      } yield result
+
+      case Value.Array(_) => Completed(Type.Array(Type.Primitive(PrimitiveType.TopType)))
+
+      case Value.FixThunk(_, annotatedType, _, _) => Completed(annotatedType)
+
+      case Value.Merge(values) => {
+        val valueList = values.toList
+        def inferMerge(remaining: List[Value], acc: Option[Type]): WorkList[BigStepTask, Type] = {
+          remaining match {
+            case Nil => acc match {
+              case Some(ty) => Completed(ty)
+              case None => throw new RuntimeException("Empty merge set")
+            }
+            case head :: tail => for {
+              headType <- TaskNode(InferValue(head))
+              result <- inferMerge(tail, Some(acc match {
+                case Some(accType) => Type.Intersection(accType, headType)
+                case None => headType
+              }))
+            } yield result
+          }
+        }
+        inferMerge(valueList, None)
+      }
+
+      case Value.Neutral(neutralValue) => TaskNode(InferNeutral(neutralValue))
+    }
+  }
+
+  private case class InferNeutral(neutralValue: NeutralValue)(
+    using env: Env
+  ) extends BigStepTask[Type] {
+    override def step: WorkList[BigStepTask, Type] = neutralValue match {
+      case NeutralValue.Var(name) => env.getValue(name) match {
+        case Some(value) => TaskNode(InferValue(value))
+        case None => throw new RuntimeException(s"Unbound variable in neutral value: $name")
+      }
+
+      case NeutralValue.Apply(func, _) => for {
+        funcType <- TaskNode(InferNeutral(func))
+        result <- funcType match {
+          case Type.Arrow(_, returnType, _) => Completed(returnType)
+          case other => throw new RuntimeException(s"Attempted to apply a non-function type: $other")
+        }
+      } yield result
+
+      case NeutralValue.Project(record, field) => for {
+        recordType <- TaskNode(InferNeutral(record))
+        result <- recordType match {
+          case Type.Record(fields) => fields.get(field) match {
+            case Some(fieldType) => Completed(fieldType)
+            case None => throw new RuntimeException(s"Field '$field' not found in record type")
+          }
+          case other => throw new RuntimeException(s"Attempted to project a field from a non-record type: $other")
+        }
+      } yield result
+
+      case NeutralValue.Merge(left, right) => for {
+        leftType <- TaskNode(InferNeutral(left))
+        rightType <- TaskNode(InferValue(right))
+        result = Type.Intersection(leftType, rightType)
+      } yield result
+
+      case NeutralValue.Annotated(_, annotatedType) => Completed(annotatedType)
+
+      case NeutralValue.NativeCall(function, args) => {
+        val remainingParams = function.paramTypes.drop(args.length)
+        if remainingParams.isEmpty then {
+          Completed(function.returnType)
+        } else {
+          val arrowType = remainingParams.foldRight(function.returnType) {
+            (paramType, accType) => Type.Arrow(paramType, accType, function.isPure)
+          }
+          Completed(arrowType)
+        }
+      }
+
+      case NeutralValue.UnfoldingThunk(_, annotatedType, _, _) => Completed(annotatedType)
+    }
   }
 }
