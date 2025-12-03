@@ -93,7 +93,11 @@ enum Type extends IdentifiedByString {
     case Tuple(elements) => {
       Tuple(elements.map(_.subst(from, replacement)))
     }
-    
+
+    case Array(elementType) => {
+      Array(elementType.subst(from, replacement))
+    }
+
     case Ref(ty) => {
       Ref(ty.subst(from, replacement))
     }
@@ -168,7 +172,11 @@ enum Type extends IdentifiedByString {
           case (ty1, ty2) => ty1.unify(ty2)
         }
       }
-      
+
+      case (Array(elementType1), Array(elementType2)) => {
+        elementType1.unify(elementType2)
+      }
+
       case (Ref(ty1), Ref(ty2)) => ty1.unify(ty2)
 
       case (Fixpoint(name1, body1), Fixpoint(name2, body2)) => {
@@ -282,7 +290,11 @@ enum Type extends IdentifiedByString {
           case (ty1, ty2) => ty1 <:< ty2
         }
       }
-      
+
+      case (Array(elementType1), Array(elementType2)) => {
+        elementType1 <:< elementType2
+      }
+
       case (Ref(ty1), Ref(ty2)) => ty1.unify(ty2) // Ref types are invariant
 
       case (Apply(func1, arg1), Apply(func2, arg2)) => func1.unify(func2) && arg1.unify(arg2)
@@ -369,7 +381,9 @@ enum Type extends IdentifiedByString {
     })
 
     case Tuple(elements) => Tuple(elements.map(_.normalize))
-    
+
+    case Array(elementType) => Array(elementType.normalize)
+
     case Ref(ty) => Ref(ty.normalize)
 
     case Apply(func, arg) => {
@@ -419,6 +433,7 @@ enum Type extends IdentifiedByString {
     case Union(left, right) => left.isBottomLike && right.isBottomLike
     case Record(fields) => fields.values.exists(_.isBottomLike)
     case Tuple(elements) => elements.exists(_.isBottomLike)
+    case Array(elementType) => elementType.isBottomLike
     case Forall(_, codomain, _) => codomain.isBottomLike
     case Fixpoint(_, body) => body.isBottomLike
     case _ => false
@@ -449,7 +464,11 @@ enum Type extends IdentifiedByString {
         }
       }
     }
-    
+
+    case (Array(elementType1), Array(elementType2)) => {
+      elementType1.disjointWith(elementType2)
+    }
+
     case (Intersection(l1, r1), other) => {
       l1.disjointWith(other) || r1.disjointWith(other)
     }
@@ -527,6 +546,12 @@ enum Type extends IdentifiedByString {
       }
     }
 
+    case (Array(elementType1), Array(elementType2)) => {
+      val elementDiff = elementType1.diff(elementType2).normalize
+      if elementDiff == Type.bottom then Type.bottom
+      else Array(elementDiff).normalize
+    }
+
     // For function-like types:
     // If lfs is a subtype of rfs, then lfs \ rfs = ⊥
     // For other cases, we just simply return lfs
@@ -578,7 +603,10 @@ enum Type extends IdentifiedByString {
       Arrow(domain1, codomain1.merge(codomain2).normalize, isTrait1)
     case (Record(fields1), Record(fields2)) 
       if fields1.keySet == fields2.keySet =>
-      Record(fields1.map { case (label, ty1) => label -> ty1.merge(fields2(label)).normalize })
+      Record(fields1.map { (label, ty1) => label -> ty1.merge(fields2(label)).normalize })
+    case (Array(elementType1), Array(elementType2)) => {
+      Array(elementType1.merge(elementType2).normalize)
+    }
     case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
       val typesToCheck = Seq(codomain1, codomain2) ++ constraints1.map(_.subject) ++ constraints2.map(_.subject)
       env.withFreshTypeVar(typesToCheck*) { (freshVar, newEnv) =>
@@ -703,7 +731,9 @@ enum Type extends IdentifiedByString {
     case Tuple(elements) => {
       s"(${elements.map(_.toString).mkString(", ")})"
     }
-    
+
+    case Array(elementType) => s"[${elementType.toString}]"
+
     case Fixpoint(name, body) => s"μ $name . ${body.toAtomString}"
     
     case Ref(ty) => s"&${ty.toAtomString}"

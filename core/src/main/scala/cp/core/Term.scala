@@ -195,9 +195,36 @@ enum Term extends IdentifiedByString {
         }
       }
 
-      case ArrayLiteral(_) => ???
-      case Do(_, _) => ???
-      case RefAddr(_, _) => ???
+      case ArrayLiteral(elements) => {
+        if elements.isEmpty then {
+          // Empty array has type Array[Top]
+          Type.Array(Type.Primitive(PrimitiveType.TopType))
+        } else {
+          // All elements should have the same type or a common supertype
+          val elementTypes = elements.map(_.infer)
+          val commonType = elementTypes.reduce { (ty1, ty2) =>
+            if ty1 == ty2 then ty1
+            else if ty1 <:< ty2 then ty2
+            else if ty2 <:< ty1 then ty1
+            else TypeNotMatch.raise {
+              s"Array elements have incompatible types: ${ty1} and ${ty2}"
+            }
+          }
+          Type.Array(commonType)
+        }
+      }
+
+      case Do(expr, body) => {
+        // Ensure expr is well-typed (though its value is discarded)
+        expr.infer
+        // The type of Do is the type of body
+        body.infer
+      }
+
+      case RefAddr(refType, address) => {
+        // RefAddr represents a reference to a memory location, so its type is the Ref type
+        refType
+      }
 
       case NativeFunctionCall(function, args) => {
         if args.length > function.arity then TypeNotMatch.raise {
@@ -219,7 +246,25 @@ enum Term extends IdentifiedByString {
         }
       }
 
-      case NativeProcedureCall(_, _) => ???
+      case NativeProcedureCall(procedure, args) => {
+        if args.length > procedure.arity then TypeNotMatch.raise {
+          s"Too many arguments for native procedure: expected at most ${procedure.arity}, got ${args.length}"
+        }
+        val paramTypes = procedure.paramTypes
+        args.zip(paramTypes).foreach { (arg, paramType) =>
+          val argType = arg.infer
+          if !(argType <:< paramType) then TypeNotMatch.raise {
+            s"Expected argument type: ${paramType}, but got: ${argType}"
+          }
+        }
+        if args.length == procedure.arity then {
+          procedure.returnType
+        } else {
+          paramTypes.drop(args.length).foldRight(procedure.returnType) {
+            (paramType, acc) => Type.Arrow(paramType, acc)
+          }
+        }
+      }
     }
 
     inferredType.normalize
