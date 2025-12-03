@@ -37,13 +37,23 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
 
       case Term.Primitive(value) => Completed(Value.Primitive(value))
 
-      case Term.Lambda(param, paramType, body, isCoe) => {
-        val termEnv: Environment[String, Type, Term] = env.mapValues {
-          case (name, value) => Term.Annotated(Term.Var(name), value.infer(using env))
-        }.addValueVar(param, Term.Annotated(Term.Var(param), paramType))
-        val returnType = body.infer(using termEnv).normalize
-        Completed(Value.Closure(env, param, paramType.normalize, body, returnType, isCoe))
-      }
+      case Term.Lambda(param, paramType, body, isCoe) => for {
+        termEnv <- {
+          val valueEntries = env.values.toList
+          def buildTermEnv(remaining: List[(String, Value)], acc: Environment[String, Type, Term]): WorkList[BigStepTask, Environment[String, Type, Term]] = {
+            remaining match {
+              case Nil => Completed(acc.addValueVar(param, Term.Annotated(Term.Var(param), paramType)))
+              case (name, value) :: rest => for {
+                valueType <- TaskNode(InferValue(value)(using env))
+                result <- buildTermEnv(rest, acc.addValueVar(name, Term.Annotated(Term.Var(name), valueType)))
+              } yield result
+            }
+          }
+          buildTermEnv(valueEntries, Environment[String, Type, Term](types = env.types, values = Map.empty))
+        }
+        returnType <- TaskNode(InferTerm(body)(using termEnv))
+        result = Value.Closure(env, param, paramType.normalize, body, returnType.normalize, isCoe)
+      } yield result
 
       case Term.Apply(fnTerm, argTerm) => for {
         fnValue <- TaskNode(Eval(fnTerm))
@@ -149,13 +159,23 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
         }
       } yield result
 
-      case Term.TypeLambda(typeParam, body) => {
-        val termEnv: Environment[String, Type, Term] = env.mapValues {
-          case (name, value) => Term.Annotated(Term.Var(name), value.infer(using env))
+      case Term.TypeLambda(typeParam, body) => for {
+        termEnv <- {
+          val valueEntries = env.values.toList
+          def buildTermEnv(remaining: List[(String, Value)], acc: Environment[String, Type, Term]): WorkList[BigStepTask, Environment[String, Type, Term]] = {
+            remaining match {
+              case Nil => Completed(acc.addTypeVar(typeParam, Type.Var(typeParam)))
+              case (name, value) :: rest => for {
+                valueType <- TaskNode(InferValue(value)(using env))
+                result <- buildTermEnv(rest, acc.addValueVar(name, Term.Annotated(Term.Var(name), valueType)))
+              } yield result
+            }
+          }
+          buildTermEnv(valueEntries, Environment[String, Type, Term](types = env.types, values = Map.empty))
         }
-        val returnType = body.infer(using termEnv.addTypeVar(typeParam, Type.Var(typeParam)))
-        Completed(Value.TypeClosure(env, typeParam, body, returnType))
-      }
+        returnType <- TaskNode(InferTerm(body)(using termEnv))
+        result = Value.TypeClosure(env, typeParam, body, returnType)
+      } yield result
 
       case Term.Tuple(elements) => {
         def evalElements(remaining: List[Term], accumulated: List[Value]): WorkList[BigStepTask, Value] = remaining match {
@@ -310,7 +330,7 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
     private def applyTo(arg: Value)(
       using env: Env, unfoldingSuppressor: UnfoldingSuppressor
     ): Option[WorkList[BigStepTask, Value]] = {
-      val argType = arg.infer(using env)
+      val argType = TaskNode(InferValue(arg)(using env)).run
       value match {
         case Value.Closure(closureEnv, param, paramType, body, returnType, isCoe) => {
           // Check if argument type matches parameter type
@@ -330,37 +350,33 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
 
         case fixThunk @ Value.FixThunk(fixEnv, annotatedType, name, body) => {
           annotatedType match {
-            case Type.Arrow(paramType, returnType, _) =>
-              // Check if argument type matches parameter type
-              if !(argType <:< paramType) then return None
-            case _ => return None
+            case Type.Arrow(paramType, returnType, _) if argType <:< paramType =>
+              // Create a new environment that includes the fixpoint itself
+              val newEnv = fixEnv.addValueVar(name, fixThunk)
+              // Evaluate the body in the new environment
+              Some(for {
+                fn <- TaskNode(Eval(body)(using newEnv, unfoldingSuppressor))
+                result <- fn.applyTo(arg) match {
+                  case Some(computation) => computation
+                  case None => throw new RuntimeException(s"Runtime type error: cannot apply function to argument")
+                }
+              } yield result)
+            case _ => None
           }
-          // Create a new environment that includes the fixpoint itself
-          val newEnv = fixEnv.addValueVar(name, fixThunk)
-          // Evaluate the body in the new environment
-          Some(for {
-            fn <- TaskNode(Eval(body)(using newEnv, unfoldingSuppressor))
-            result <- fn.applyTo(arg) match {
-              case Some(computation) => computation
-              case None => throw new RuntimeException(s"Runtime type error: cannot apply function to argument")
-            }
-          } yield result)
         }
 
         case Value.Neutral(func @ NeutralValue.NativeCall(function, prevArgs)) => {
           function.paramTypes.lift(prevArgs.length) match {
-            case Some(paramType) =>
-              // Check if argument type matches parameter type
-              if !(argType <:< paramType) then return None
-            case None => return None
-          }
-          val args = prevArgs :+ arg
-          if args.length == function.arity && !args.exists(_.isNeutral) then {
-            // Last argument, perform full application
-            Some(Completed(function.call(args)(using env)))
-          } else {
-            // Partial application
-            Some(Completed(Value.Neutral(NeutralValue.NativeCall(function, args))))
+            case Some(paramType) if argType <:< paramType =>
+              val args = prevArgs :+ arg
+              if args.length == function.arity && !args.exists(_.isNeutral) then {
+                // Last argument, perform full application
+                Some(Completed(function.call(args)(using env)))
+              } else {
+                // Partial application
+                Some(Completed(Value.Neutral(NeutralValue.NativeCall(function, args))))
+              }
+            case _ => None
           }
         }
 
@@ -395,14 +411,18 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
     }
   }
 
-  // TODO: For now, we just use the direct `infer/check` method in `Term` class.
-  //  In the future, we can implement these as separate tasks to fit into the WorkList framework.
-  //
-  // case class Infer(term: Term)(using env: Env) extends BigStepTask[Type] {
-  //   override def step[A]: WorkList[BigStepTask, A] = ???
-  // }
-  //
-  // case class Check(term: Term, expectedType: Type)(using env: Env) extends BigStepTask[Unit] {
-  //   override def step[A]: WorkList[BigStepTask, A] = ???
-  // }
+  private case class InferTerm(term: Term)(
+    using termEnv: Environment[String, Type, Term]
+  ) extends BigStepTask[Type] {
+    // TODO: This is still a naive implementation.
+    //  We should implement the entire type inference algorithm using worklists.
+    override def step: WorkList[BigStepTask, Type] = Completed(term.infer(using termEnv))
+  }
+
+  private case class InferValue(value: Value)(
+    using env: Env
+  ) extends BigStepTask[Type] {
+    // TODO: This is still a naive implementation. Same as above.
+    override def step: WorkList[BigStepTask, Type] = Completed(value.infer(using env))
+  }
 }
