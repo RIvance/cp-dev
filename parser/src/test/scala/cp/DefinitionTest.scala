@@ -2,12 +2,19 @@ package cp
 
 import cp.core.PrimitiveType.*
 import cp.core.PrimitiveValue.*
-import cp.core.{PrimitiveType, PrimitiveValue, Term, Type}
-import cp.test.TestExtension
+import cp.core.{Module, PrimitiveType, PrimitiveValue, Term, Type}
+import cp.interpreter.{DirectInterpreter, TrampolineInterpreter, WorkListInterpreter, Interpreter}
+import cp.test.{InterpreterGroup, TestExtension}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class DefinitionTest extends AnyFunSuite with should.Matchers with TestExtension  {
+
+  given Seq[Module] => InterpreterGroup = modules => InterpreterGroup(
+    "Direct" -> DirectInterpreter(modules*),
+    "Trampoline" -> TrampolineInterpreter(modules*),
+    "WorkList" -> WorkListInterpreter(modules*)
+  )
 
   test("term definition id 1") {
     module("""

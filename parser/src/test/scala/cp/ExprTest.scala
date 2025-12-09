@@ -3,20 +3,24 @@ package cp
 import cp.core.PrimitiveType.*
 import cp.core.PrimitiveValue.*
 import cp.core.{PrimitiveType, PrimitiveValue, Term, Type}
-import cp.interpreter.{DirectInterpreter, Interpreter}
+import cp.interpreter.{DirectInterpreter, TrampolineInterpreter, WorkListInterpreter, Interpreter}
 import cp.prelude.Prelude
-import cp.test.TestExtension
+import cp.test.{InterpreterGroup, TestExtension}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should
 
 class ExprTest extends AnyFunSuite with should.Matchers with TestExtension {
 
-  given Interpreter = DirectInterpreter(Prelude)
-  
+  given InterpreterGroup = InterpreterGroup(
+    "Direct" -> DirectInterpreter(Prelude),
+    "Trampoline" -> TrampolineInterpreter(Prelude),
+    "WorkList" -> WorkListInterpreter(Prelude)
+  )
+
   test("primitive type Int") {
     "1" >>> (IntValue(1).toTerm, IntType.toType)
   }
-  
+
   test("add two integers") {
     "1 + 2" >>> (IntValue(3).toTerm, IntType.toType)
   }

@@ -4,7 +4,7 @@ import cp.ast.{CpLexer, CpParser}
 import cp.common.Environment
 import cp.core.{Module, Namespace, Term, Type, Value}
 import cp.error.SpannedError
-import cp.interpreter.{DirectInterpreter, Interpreter}
+import cp.interpreter.Interpreter
 import cp.parser.{ErrorListener, Visitor}
 import cp.prelude.Prelude
 import cp.syntax.ExprTerm
@@ -101,31 +101,52 @@ trait TestExtension extends should.Matchers {
     }
   }
   
+  // Helper to run action for single interpreter or multiple interpreters
+  private def runForInterpreters[R](interpreter: Interpreter | InterpreterGroup)(action: Interpreter => R): Unit = {
+    interpreter match {
+      case group: InterpreterGroup => group.foreachInterpreter { 
+        (name, interp) => withClue(s"[$name] ") { action(interp) }
+      }
+      case single: Interpreter => action(single)
+    }
+  }
+
   extension (expr: String) {
     
-    protected infix def >>> (expected: (Term, Type))(using interpreter: Interpreter): Any = {
-      val (value, ty) = evalExpr(expr)
-      value.toTerm should be (expected._1)
-      ty.normalize should be (expected._2)
+    protected infix def >>> (expected: (Term, Type))(using interpreter: Interpreter | InterpreterGroup): Any = {
+      runForInterpreters(interpreter) { interp =>
+        val (value, ty) = evalExpr(expr)(using interp)
+        value.toTerm should be (expected._1)
+        ty.normalize should be (expected._2)
+      }
     }
-    
-    protected infix def >>> (expected: Term)(using interpreter: Interpreter): Any = {
-      val (value, _) = evalExpr(expr)
-      value.toTerm should be (expected)
+
+    protected infix def >>> (expected: Term)(using interpreter: Interpreter | InterpreterGroup): Any = {
+      runForInterpreters(interpreter) { interp =>
+        val (value, _) = evalExpr(expr)(using interp)
+        value.toTerm should be (expected)
+      }
     }
-    
-    protected infix def >>: (expected: Type)(using interpreter: Interpreter): Any = {
-      val (value, ty) = evalExpr(expr)
-      val term = value.toTerm
-      if !interpreter.check(term, expected) then {
-        fail(s"Term ($term : ${ty.normalize}) does not check against expected type $expected")
+
+    protected infix def >>: (expected: Type)(using interpreter: Interpreter | InterpreterGroup): Any = {
+      runForInterpreters(interpreter) { interp =>
+        val (value, ty) = evalExpr(expr)(using interp)
+        val term = value.toTerm
+        if !interp.check(term, expected) then {
+          fail(s"Term ($term : ${ty.normalize}) does not check against expected type $expected")
+        }
       }
     }
   }
-  
-  protected def module[T](code: String)(f: Interpreter => T): Unit = {
-    val module = synthModule(code)
-    val interpreter = DirectInterpreter(Prelude, module)
-    f(interpreter)
+
+  protected def module[T](code: String)(action: Interpreter => T)(
+    using interpreterFactory: Seq[Module] => (Interpreter | InterpreterGroup)
+  ): Unit = {
+    interpreterFactory(Seq(Prelude, synthModule(code))) match {
+      case group: InterpreterGroup => group.foreachInterpreter { (
+        name, interp) => withClue(s"[$name] ") { action(interp) }
+      }
+      case single: Interpreter => action(single)
+    }
   }
 }
