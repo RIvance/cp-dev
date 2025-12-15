@@ -57,7 +57,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
           case Value.Record(fields) => fields.get(field)
           case Value.Merge(values) => {
             // Try to project from each value in the merge set
-            val results = values.flatMap(projectFromValue)
+            val results = values.values.flatMap(projectFromValue)
             if results.isEmpty then None
             else Some(results.reduce((left, right) => left.merge(right)(using env)))
           }
@@ -300,7 +300,7 @@ class DirectInterpreter(initialModules: Module*) extends Interpreter(initialModu
         }
 
         case Value.Merge(values) => {
-          val applications = values.flatMap(_.applyTo(arg))
+          val applications = values.values.flatMap(_.applyTo(arg))
           if applications.isEmpty then None
           else Some(applications.reduce((left, right) => left.merge(right)(using env)))
         }

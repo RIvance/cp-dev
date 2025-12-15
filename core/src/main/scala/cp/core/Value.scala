@@ -15,7 +15,7 @@ enum Value extends IdentifiedByString {
   case Tuple(elements: List[Value])
   case Array(elements: List[Value])
   case FixThunk(env: ValueEnv, annotatedType: Type, name: String, body: Term)
-  case Merge(values: Set[Value])
+  case Merge(values: Map[Type, Value])
 
   override def contains(name: String): Boolean = this match {
     case Neutral(neutral) => neutral.contains(name)
@@ -26,7 +26,7 @@ enum Value extends IdentifiedByString {
     case Tuple(elements) => elements.exists(_.contains(name))
     case Array(elements) => elements.exists(_.contains(name))
     case FixThunk(_, _, fixName, body) => fixName != name && body.contains(name)
-    case Merge(values) => values.exists(_.contains(name))
+    case Merge(values) => values.values.exists(_.contains(name))
   }
 
   def merge(other: Value)(using env: ValueEnv): Value = {
@@ -61,7 +61,10 @@ enum Value extends IdentifiedByString {
       case (_, Neutral(nv)) => Value.Neutral(NeutralValue.Merge(nv, this))
 
       // Both are non-neutral values, use Value.Merge
-      case _ => Value.Merge(Set(this, other))
+      case (Merge(leftMap), Merge(rightMap)) => Value.Merge(leftMap ++ rightMap)
+      case (Merge(leftMap), _) => Value.Merge(leftMap + (rightType -> other))
+      case (_, Merge(rightMap)) => Value.Merge(rightMap + (leftType -> this))
+      case _ => Value.Merge(Map(leftType -> this, rightType -> other))
     }
   }
 
@@ -179,7 +182,7 @@ enum Value extends IdentifiedByString {
         } else this match {
           // Handle merge values - try casting any branch
           case Merge(values) =>
-            values.flatMap(_.cast(targetType)).headOption
+            values.values.flatMap(_.cast(targetType)).headOption
           case _ => None
         }
       }
@@ -212,7 +215,7 @@ enum Value extends IdentifiedByString {
     case FixThunk(env, annotatedType, fixName, body) => {
       Term.Fixpoint(fixName, annotatedType, body)
     }
-    case Merge(values) => values.map(_.toTerm).reduce((left, right) => Term.Merge(left, right, MergeBias.Neutral))
+    case Merge(values) => values.values.map(_.toTerm).reduce((left, right) => Term.Merge(left, right, MergeBias.Neutral))
     case Neutral(neutralValue) => neutralValue.toTerm
   }
 
@@ -225,7 +228,7 @@ enum Value extends IdentifiedByString {
     case Array(elements) if elements.nonEmpty => Type.Array(elements.head.infer)
     case Array(_) => Type.Array(Type.Primitive(PrimitiveType.TopType))
     case FixThunk(_, annotatedType, _, _) => annotatedType
-    case Merge(values) => values.map(_.infer).reduce((left, right) => Type.Intersection(left, right))
+    case Merge(values) => values.keys.reduce((left, right) => Type.Intersection(left, right))
     case Neutral(neutralValue) => neutralValue.infer
   }
 
@@ -252,7 +255,7 @@ enum Value extends IdentifiedByString {
     case FixThunk(_, annotatedType, fixName, body) =>
       s"(fix $fixName: $annotatedType. $body)"
     case Merge(values) =>
-      values.map(_.toString).mkString(" ,, ")
+      values.values.map(_.toString).mkString(" ,, ")
     case Neutral(neutralValue) => neutralValue.toString
   }
 }

@@ -67,7 +67,7 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
           case Value.Record(fields) => fields.get(field).map(done)
           case Value.Merge(values) => {
             // Try to project from each value in the merge set
-            val results = values.flatMap(projectFromValue)
+            val results = values.values.flatMap(projectFromValue)
             if results.isEmpty then None
             else Some(done(results.map(_.result).reduce((left, right) => left.merge(right)(using env))))
           }
@@ -367,9 +367,7 @@ class TrampolineInterpreter(initialModules: Module*) extends Interpreter(initial
         }
 
         case Value.Merge(values) => {
-          val applications = values.flatMap { v =>
-            v.applyTo(arg)(using env, unfoldingSuppressor)
-          }
+          val applications = values.values.flatMap { v => v.applyTo(arg)(using env, unfoldingSuppressor) }
           if applications.isEmpty then None
           else Some(done(applications.map(_.result).reduce((left, right) => left.merge(right)(using env))))
         }

@@ -89,7 +89,7 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
           case Value.Record(fields) => fields.get(field).map(Completed(_))
           case Value.Merge(values) => {
             // Try to project from each value in the merge set
-            val results = values.flatMap(projectFromValue)
+            val results = values.values.flatMap(projectFromValue)
             if results.isEmpty then None
             else Some(Completed(results.map(_.run).reduce((left, right) => left.merge(right)(using env))))
           }
@@ -397,9 +397,7 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
         }
 
         case Value.Merge(values) => {
-          val applications = values.flatMap { v =>
-            v.applyTo(arg)
-          }
+          val applications = values.values.flatMap { v => v.applyTo(arg) }
           if applications.isEmpty then None
           else Some(Completed(applications.map(_.run).reduce((left, right) => left.merge(right)(using env))))
         }
@@ -764,7 +762,7 @@ class WorkListInterpreter(initialModules: Module*) extends Interpreter(initialMo
       case Value.FixThunk(_, annotatedType, _, _) => Completed(annotatedType)
 
       case Value.Merge(values) => {
-        val valueList = values.toList
+        val valueList = values.values.toList
         def inferMerge(remaining: List[Value], acc: Option[Type]): WorkList[BigStepTask, Type] = {
           remaining match {
             case Nil => acc match {
