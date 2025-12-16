@@ -232,8 +232,9 @@ enum Type extends IdentifiedByString {
       }
 
       // (A -> B) & (C -> D) <: (A & C) -> (B & D)
-      case (Intersection(Arrow(a, b, isTrait1), Arrow(c, d, isTrait2)), Arrow(ac, bd, isTrait3)) => {
-        isTrait1 == isTrait2 && isTrait2 == isTrait3 && (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)
+      case (Intersection(l @ Arrow(a, b, isTrait1), r @ Arrow(c, d, isTrait2)), Arrow(ac, bd, isTrait3)) => {
+        (isTrait1 == isTrait2 && isTrait2 == isTrait3 && (ac <:< Type.Intersection(a, c)) && (Type.Intersection(b, d) <:< bd)) ||
+        l <:< normThat || r <:< normThat
       }
 
       case (Forall(param1, codomain1, constraints1), Forall(param2, codomain2, constraints2)) => {
