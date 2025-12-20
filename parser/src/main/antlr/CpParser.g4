@@ -8,6 +8,10 @@ program
     :   (imports+=importing Semicolon)* (definitions+=definition Semicolon)* main EOF
     ;
 
+header
+    :  (imports+=importing Semicolon)* (definitions+=headerDefinition Semicolon)* EOF
+    ;
+
 // For REPL
 
 singletonDef
@@ -52,6 +56,16 @@ definition
     |   def=typeDef             # typeDefinition
     |   def=termDef             # termDefinition
     |   def=submoduleDef        # submoduleDefinition
+    ;
+
+headerDefinition
+    :   def=interfaceDef        # interfaceHeaderDefinition
+    |   def=typeDef             # typeHeaderDefinition
+    |   def=externDef           # termHeaderDefinition
+    ;
+
+externDef
+    :   Extern symbol=Identifier ':' ty=type
     ;
 
 interfaceDef
